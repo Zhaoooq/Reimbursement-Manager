@@ -1,0 +1,1 @@
+"""Bundled Qt stylesheet resources."""

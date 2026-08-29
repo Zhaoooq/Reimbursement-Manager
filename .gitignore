@@ -1,0 +1,43 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build artifacts
+build/
+dist/
+release/
+*.egg-info/
+
+# IDE and OS metadata
+.idea/
+.vscode/
+.vs/
+*.code-workspace
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Local runtime data and user files
+data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+backups/
+backup/
+archive/
+archive_root/
+.trash/
+**/.trash/

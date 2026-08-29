@@ -1,0 +1,509 @@
+/* UI-1: restrained light desktop theme. */
+QWidget {
+    background: #f6f7f9;
+    color: #20252d;
+    font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    font-size: 13px;
+}
+
+QMainWindow, QWidget#appRoot {
+    background: #f6f7f9;
+}
+
+QFrame#sidebar {
+    background: #ffffff;
+    border-right: 1px solid #e3e7ed;
+}
+
+QLabel#appTitle {
+    background: transparent;
+    color: #1c2530;
+    font-size: 16px;
+    font-weight: 600;
+    padding: 4px 8px 16px 8px;
+}
+
+QListWidget#navigation {
+    background: transparent;
+    border: none;
+    outline: none;
+    padding: 0;
+}
+
+QListWidget#navigation::item {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: #566170;
+    height: 42px;
+    margin: 2px 0;
+    padding: 0 12px;
+}
+
+QListWidget#navigation::item:hover {
+    background: #f0f3f7;
+    color: #263445;
+}
+
+QListWidget#navigation::item:selected {
+    background: #e8f0fb;
+    border-color: #d8e5f8;
+    color: #235b9f;
+    font-weight: 600;
+}
+
+QStackedWidget#pageStack, QWidget#contentPage {
+    background: #f6f7f9;
+}
+
+QPushButton {
+    background: #ffffff;
+    border: 1px solid #d8dee8;
+    border-radius: 6px;
+    min-height: 32px;
+    padding: 0 12px;
+}
+
+QPushButton:hover {
+    background: #f3f6fa;
+    border-color: #b9c7d8;
+}
+
+QPushButton:pressed {
+    background: #e9eef5;
+}
+
+QPushButton:disabled {
+    background: #f2f3f5;
+    border-color: #e3e6eb;
+    color: #9aa3af;
+}
+
+QPushButton#primaryButton {
+    background: #2f6fad;
+    border-color: #2f6fad;
+    color: #ffffff;
+    font-weight: 600;
+}
+
+QPushButton#primaryButton:hover {
+    background: #255d94;
+    border-color: #255d94;
+}
+
+QPushButton#primaryButton:pressed {
+    background: #1f4f7e;
+}
+
+QPushButton#primaryButton:disabled {
+    background: #9cb9d6;
+    border-color: #9cb9d6;
+    color: #f8fbff;
+}
+
+QPushButton#dangerButton {
+    background: #fff7f6;
+    border-color: #e5b8b2;
+    color: #a5372f;
+}
+
+QPushButton#dangerButton:hover {
+    background: #fdecea;
+    border-color: #d8887f;
+}
+
+QPushButton#dangerButton:pressed {
+    background: #f8d9d5;
+}
+
+QPushButton#dangerButton:disabled {
+    background: #f7eeee;
+    border-color: #ead6d3;
+    color: #b59490;
+}
+
+QLineEdit, QTextEdit, QComboBox, QDateEdit {
+    background: #ffffff;
+    border: 1px solid #d8dee8;
+    border-radius: 6px;
+    padding: 5px 8px;
+}
+
+QLineEdit, QComboBox, QDateEdit {
+    min-height: 20px;
+}
+
+QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QDateEdit:focus {
+    border-color: #7ba7dc;
+}
+
+QLineEdit:disabled, QTextEdit:disabled, QComboBox:disabled, QDateEdit:disabled {
+    background: #f2f3f5;
+    border-color: #e3e6eb;
+    color: #7b8592;
+}
+
+QLineEdit::placeholder, QTextEdit::placeholder {
+    color: #7b8592;
+}
+
+QCheckBox {
+    background: transparent;
+    min-height: 24px;
+    spacing: 8px;
+}
+
+QCheckBox::indicator {
+    background: #ffffff;
+    border: 1px solid #b9c7d8;
+    border-radius: 3px;
+    height: 14px;
+    width: 14px;
+}
+
+QCheckBox::indicator:checked {
+    background: #2f6fad;
+    border-color: #2f6fad;
+}
+
+QTableWidget, QTreeWidget, QListWidget {
+    background: #ffffff;
+    border: 1px solid #e0e5ec;
+    border-radius: 6px;
+    gridline-color: #edf0f4;
+}
+
+QTableWidget::item, QTreeWidget::item {
+    border-bottom: 1px solid #edf0f4;
+    padding: 8px 10px;
+}
+
+QTableWidget::item:hover, QTreeWidget::item:hover {
+    background: #f4f7fa;
+}
+
+QTableWidget::item:selected, QTreeWidget::item:selected {
+    background: #e8f0fb;
+    color: #20252d;
+}
+
+QHeaderView::section {
+    background: #f8f9fb;
+    border: none;
+    border-bottom: 1px solid #e0e5ec;
+    color: #5d6877;
+    font-weight: 600;
+    min-height: 34px;
+    padding: 0 10px;
+}
+
+/* UI-2: compact Dashboard workbench. */
+QLabel#pageTitle, QLabel#templatePageTitle {
+    background: transparent;
+    color: #1c2530;
+    font-size: 22px;
+    font-weight: 600;
+}
+
+QLabel#sectionTitle, QLabel#dialogSectionTitle,
+QLabel#mergedPaymentSectionTitle, QLabel#mergedPaymentResultTitle,
+QLabel#mergedPaymentSourceTitle, QLabel#itemDetailStatusTitle {
+    background: transparent;
+    color: #293444;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+QLabel#emptyStateTitle {
+    background: transparent;
+    color: #293444;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+QFrame#dashboardStatCard, QFrame#dashboardPendingItem {
+    background: #ffffff;
+    border: 1px solid #e0e5ec;
+    border-radius: 6px;
+}
+
+QLabel#dashboardStatValue {
+    background: transparent;
+    color: #1f4f86;
+    font-size: 24px;
+    font-weight: 600;
+}
+
+QLabel#dashboardStatTitle, QLabel#dashboardItemBatch,
+QLabel#pendingMaterialsSummary, QLabel#batchDetailSummary,
+QLabel#emptyStateDescription, QLabel#dialogHint,
+QLabel#mergedPaymentSourceFilename, QLabel#itemDetailStatusText {
+    background: transparent;
+    color: #667281;
+    font-size: 12px;
+}
+
+QLabel#dashboardItemName {
+    background: transparent;
+    color: #20252d;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+QLabel#dashboardProgress {
+    background: transparent;
+    color: #465467;
+}
+
+QLabel#dashboardMissing, QLabel#mergedPaymentEmpty, QLabel#mergedPaymentSourceMissing,
+QLabel#mergedPaymentSourceUnsupported {
+    background: #fff5e8;
+    border: 1px solid #f2d5a8;
+    border-radius: 4px;
+    color: #8a4c08;
+    min-height: 20px;
+    padding: 2px 6px;
+}
+
+QLabel#attachmentPdfBadge, QLabel#attachmentFileBadge {
+    background: #e8eff8;
+    border: 1px solid #d8e5f8;
+    border-radius: 4px;
+    color: #235b9f;
+    font-weight: 600;
+    min-height: 20px;
+    padding: 2px 6px;
+}
+
+QLabel#dashboardEmptyState, QFrame#batchListEmptyState,
+QFrame#batchDetailEmptyState, QFrame#allItemsEmptyState,
+QFrame#pendingMaterialsEmptyState, QFrame#templateEmptyState {
+    background: #ffffff;
+    border: 1px dashed #cfd7e1;
+    border-radius: 6px;
+    color: #667281;
+    padding: 24px;
+}
+
+/* UI-10: shared form, confirmation, and template-management treatment. */
+QDialog#standardDialog, QMessageBox#standardMessageDialog {
+    background: #f6f7f9;
+}
+
+QMessageBox {
+    background: #f6f7f9;
+}
+
+QMessageBox QLabel {
+    background: transparent;
+}
+
+QLabel#dialogTitle {
+    background: transparent;
+    color: #1c2530;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+QDialog#standardDialog QDialogButtonBox {
+    background: transparent;
+}
+
+QDialog#standardDialog QDialogButtonBox QPushButton,
+QMessageBox#standardMessageDialog QPushButton {
+    min-width: 78px;
+}
+
+QDialog#standardDialog QFormLayout QLabel {
+    background: transparent;
+    color: #465467;
+}
+
+QDialog#standardDialog QLineEdit, QDialog#standardDialog QComboBox {
+    min-height: 30px;
+}
+
+QDialog#standardDialog QTextEdit {
+    min-height: 70px;
+}
+
+QFrame#templateMaterialList {
+    background: #ffffff;
+    border: 1px solid #e0e5ec;
+    border-radius: 6px;
+}
+
+QFrame#templateMaterialList QCheckBox {
+    background: transparent;
+    min-height: 28px;
+}
+
+/* UI-4: compact batch context and item work area. */
+QPushButton#batchDetailBackButton {
+    background: transparent;
+    border: none;
+    color: #235b9f;
+    min-height: 24px;
+    padding: 0;
+}
+
+QPushButton#batchDetailBackButton:hover {
+    background: transparent;
+    color: #1f4f86;
+    text-decoration: underline;
+}
+
+/* UI-5: All Items search, table, and contextual empty states. */
+QLineEdit#allItemsSearchInput {
+    min-height: 28px;
+    padding: 5px 10px;
+}
+
+/* UI-9: pending materials keep source collection and submission readiness distinct. */
+/* UI-6: Item Detail information hierarchy and material sections. */
+QScrollArea#itemDetailScrollArea, QScrollArea#dashboardPendingArea {
+    background: transparent;
+    border: none;
+}
+
+QScrollArea#itemDetailScrollArea QWidget#qt_scrollarea_viewport,
+QScrollArea#dashboardPendingArea QWidget#qt_scrollarea_viewport {
+    background: #f6f7f9;
+}
+
+QWidget#itemDetailContent {
+    background: #f6f7f9;
+}
+
+QPushButton#itemDetailBackButton {
+    background: transparent;
+    border: none;
+    color: #235b9f;
+    min-height: 24px;
+    padding: 0;
+}
+
+QPushButton#itemDetailBackButton:hover {
+    background: transparent;
+    color: #1f4f86;
+    text-decoration: underline;
+}
+
+QLabel#itemDetailName {
+    background: transparent;
+    color: #1c2530;
+    font-size: 22px;
+    font-weight: 600;
+}
+
+QLabel#itemDetailAmount {
+    background: transparent;
+    color: #1f4f86;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+QFrame#itemDetailMetadata, QFrame#itemDetailStatusCard {
+    background: #ffffff;
+    border: 1px solid #e0e5ec;
+    border-radius: 6px;
+}
+
+QFrame#itemDetailMetadata QLabel {
+    background: transparent;
+}
+
+QProgressBar#itemDetailProgress {
+    background: #e9edf2;
+    border: none;
+    border-radius: 3px;
+    max-height: 6px;
+    min-height: 6px;
+}
+
+QProgressBar#itemDetailProgress::chunk {
+    background: #4d8ac7;
+    border-radius: 3px;
+}
+
+QFrame#itemDetailPrimaryActions {
+    background: transparent;
+}
+
+/* UI-8: payment screenshots have a dedicated, compact merge workflow. */
+QFrame#mergedPaymentSection {
+    background: #ffffff;
+    border: 1px solid #d7e1ed;
+    border-radius: 6px;
+}
+
+QFrame#mergeOrderSource, QFrame#mergePaymentSource, QFrame#mergedPaymentResult {
+    background: #fbfcfe;
+    border: 1px solid #dce3eb;
+    border-radius: 6px;
+}
+
+QLabel#mergedPaymentRelation, QLabel#mergedPaymentFlow {
+    background: transparent;
+    color: #607083;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+QTreeWidget#itemDetailMaterialsTree {
+    background: #ffffff;
+    border: 1px solid #e0e5ec;
+    border-radius: 6px;
+}
+
+QPushButton#itemDetailAddAttachmentButton {
+    min-height: 28px;
+    margin: 0 8px 0 0;
+    padding: 0 10px;
+}
+
+/* UI-7: compact cards keep attachment previews readable without a viewer. */
+QWidget#attachmentGrid {
+    background: transparent;
+}
+
+QFrame#attachmentCard {
+    background: #fbfcfe;
+    border: 1px solid #dce3eb;
+    border-radius: 6px;
+}
+
+QPushButton#attachmentThumbnail {
+    background: #f1f4f7;
+    border: 1px solid #d1d9e3;
+    border-radius: 4px;
+    padding: 0;
+}
+
+QPushButton#attachmentThumbnail:hover {
+    border-color: #4d8ac7;
+    background: #eaf2fb;
+}
+
+QLabel#attachmentFilename {
+    background: transparent;
+    color: #293444;
+    font-weight: 600;
+}
+
+QLabel#attachmentMissingFile {
+    background: #fff3f2;
+    border: 1px solid #f0d9d6;
+    border-radius: 4px;
+    color: #9b3f39;
+    font-weight: 600;
+    min-height: 20px;
+    padding: 2px 6px;
+}
+
+QFrame#itemDetailDangerZone {
+    background: #fffafa;
+    border: 1px solid #f0d9d6;
+    border-radius: 6px;
+    color: #7d4b47;
+}

@@ -1,0 +1,8 @@
+# Initial Alembic Migration Design
+
+Task 4 establishes Alembic as the only production schema upgrade mechanism. The repository will contain a root `alembic.ini` and migration environment under `src/reimbursement_manager/database/migrations`, matching the project architecture. The environment imports the complete model package so `target_metadata` always contains all seven business tables. When the configuration does not supply a database URL, it derives the local `data/app.db` path from `AppSettings`; tests override that URL with isolated SQLite files.
+
+The first revision is a fixed, reviewable migration rather than a runtime call to `Base.metadata.create_all()`. It explicitly creates tables in foreign-key dependency order, including enum checks, named uniqueness and validation constraints, indexes, integer-cent money columns, relative attachment paths, and the deletion policies accepted in ADR-0001. Downgrade removes indexes and tables in reverse dependency order. Future model changes must add new revisions rather than editing this initial revision after release.
+
+Verification uses Alembic's Python API against fresh temporary databases. One test upgrades an empty database and checks all seven tables. A second repeats `upgrade head` and confirms the stored revision remains the current head. A third configures Alembic's autogenerate comparison against `Base.metadata`; an empty diff proves the migration schema and model metadata agree. A downgrade test confirms the revision is reversible. Finally, the real CLI command will create `data/app.db`, demonstrating that normal development setup works without `create_all()`. This task creates schema only; seed MaterialType data remains Task 6.
+

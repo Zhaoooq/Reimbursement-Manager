@@ -1,0 +1,9 @@
+# Hash Service Design
+
+Task 11 introduces a small, stateless `HashService` for calculating SHA256 digests before an attachment is copied or written to the database. The service accepts a local `Path`, verifies that it exists and is a regular file, opens it in binary mode, and updates one `hashlib.sha256()` object with fixed-size chunks. The result is the standard lowercase 64-character hexadecimal digest used by the Attachment model and Item-scoped duplicate query.
+
+The default chunk size is 1 MiB. Callers may provide a smaller positive chunk size for constrained environments or deterministic tests. Memory usage therefore remains bounded by the chunk size rather than total file size. An explicit read loop is preferred over `Path.read_bytes()` or `file.read()` without a size because the Phase 1 requirements prohibit loading an entire large attachment into memory. It is also preferred over platform-specific optimizations because the straightforward implementation is portable and easily testable.
+
+Missing files raise `FileNotFoundError`; directories raise `IsADirectoryError`; open and read failures propagate with their original operating-system context. The service does not catch and hide errors, does not mutate files, and does not query SQLite. AttachmentService will later decide how these recoverable failures are logged and presented to the user.
+
+Tests compare hashes for repeated reads, different content, and an empty file against Python's trusted hashlib result. A tracking binary stream records every `read(size)` call for a simulated multi-chunk payload, proving the implementation never requests an unbounded read. Additional tests cover Unicode paths, missing files, directories, and invalid chunk sizes. Alternatives such as caching hashes or combining hashing with file copying are deferred because they would expand Task 11 beyond one responsibility.
