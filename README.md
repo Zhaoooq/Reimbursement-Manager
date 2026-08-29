@@ -1,13 +1,51 @@
 # 报销材料管理器
 
-一个 Windows 优先、单用户、本地运行的报销材料管理工具。项目当前处于 Phase 1，优先建立核心数据层与文件管理基础，尚未开发完整 GUI。
+ReimbursementManager 是一个 Windows 优先、单用户、本地运行的报销材料管理工具。它围绕“报销批次 → 报销物品 → 材料要求 → 实际附件”组织资料，帮助你确认材料是否齐全、快速定位文件，并导出整理好的报销材料。
 
-## 环境要求
+当前稳定版本：**v0.1.0**
 
-- Python 3.12+
-- Windows 10/11（优先支持）
+## 主要功能
+
+- 创建、编辑和删除报销批次与报销物品。
+- 使用材料模板初始化物品所需材料；模板变更不会影响已有物品。
+- 上传 JPG、JPEG、PNG、PDF 附件，并复制到独立的附件归档目录。
+- 自动安全重命名附件，处理 Windows 非法字符、保留名称和同名冲突。
+- 动态显示材料完整度和缺失材料；收集完整度与提交就绪状态分开计算。
+- 合并支付截图，打开附件或所在文件夹，并将删除的附件移入归档目录中的 `.trash`。
+- 提供 Dashboard、批次、全部物品、待补材料、模板管理和设置页面；支持按名称、商家、订单号和批次搜索。
+- 导出单个物品、完整批次或批次 ZIP；材料不完整时可取消或明确选择强制导出，并生成说明文件。
+- 通过“设置”页面备份和恢复 SQLite 数据库；恢复前会先创建安全备份。
+
+## 使用 Portable 发布版
+
+打开发布目录中的 `ReimbursementManager.exe` 即可启动，无需安装 Python 或开发环境。
+
+程序与用户数据相互独立：
+
+- 数据库：`%LOCALAPPDATA%\ReimbursementManager\data\app.db`
+- 日志：`%LOCALAPPDATA%\ReimbursementManager\logs\`
+- 配置与数据库备份：`%LOCALAPPDATA%\ReimbursementManager\config\`、`%LOCALAPPDATA%\ReimbursementManager\backups\`
+- 报销附件：保存在软件配置的附件归档目录，不保存在程序目录中。
+
+删除或移动 Portable 程序目录不会自动删除数据库和附件归档；反过来，复制程序目录也不等于备份全部业务数据。
+
+### 备份与恢复
+
+“设置”页面可备份或恢复数据库。数据库备份不包含 JPG、PNG、PDF 等附件；如需完整保留报销资料，请同时备份：
+
+1. 数据库备份文件；
+2. 实际附件归档目录。
+
+恢复数据库会替换当前数据库，软件会先执行安全备份；恢复操作不会复制或恢复附件文件。
 
 ## 本地开发
+
+### 环境要求
+
+- Python 3.12+
+- Windows 10/11
+
+### 安装依赖
 
 ```powershell
 py -3.12 -m venv .venv
@@ -16,62 +54,92 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
 
-## 运行测试
+### 启动应用
 
 ```powershell
-python -m pytest
+python -m reimbursement_manager
 ```
 
-## 数据库迁移
+开发模式的运行数据位于项目内的 `data/` 目录：
 
-首次开发或更新代码后，使用 Alembic 把本地数据库升级到最新版本：
+```text
+data/
+├─ app.db
+├─ archive/
+├─ backups/
+├─ config/
+└─ logs/
+```
+
+这些目录均属于本地用户数据，已被 Git 忽略。
+
+### 数据库迁移
+
+应用启动时会自动执行迁移。开发时如需手动升级或检查版本，可使用：
 
 ```powershell
 alembic upgrade head
 alembic current
 ```
 
-默认数据库文件为 `data/app.db`。正式 Schema 只通过 Alembic Migration 升级，不依赖 `Base.metadata.create_all()`。
+正式 Schema 仅通过 Alembic migration 维护，不依赖 `Base.metadata.create_all()`。
 
-## 运行应用入口
+### 测试
 
 ```powershell
-python -m reimbursement_manager
+python -m pytest
 ```
 
-当前入口只负责初始化运行目录和日志，不会提前创建 GUI。默认运行数据位于项目的 `data/` 目录：
+在无图形环境中运行 PySide6 测试时：
+
+```powershell
+$env:QT_QPA_PLATFORM = "offscreen"
+python -m pytest
+```
+
+## 构建发布版
+
+先生成 PyInstaller `onedir` 构建：
+
+```powershell
+python scripts/build_windows.py
+```
+
+然后从已有构建生成版本化 Portable 目录：
+
+```powershell
+python scripts/create_release.py
+```
+
+输出目录格式为：
 
 ```text
-data/
-├─ app.db
-├─ archive/
-└─ logs/
+release/
+└─ ReimbursementManager-0.1.0-win64/
 ```
+
+构建和发布产物不包含用户数据库、日志、备份或报销附件。
 
 ## 项目结构
 
 ```text
 src/reimbursement_manager/
-├─ app.py
-├─ __main__.py
-├─ config/
+├─ app.py                 # 应用启动与服务装配
+├─ config/                # 开发与发布运行路径
+├─ database/              # SQLAlchemy 模型、仓储与 Alembic migration
+├─ domain/                # 领域枚举
+├─ services/              # 业务、文件、导出、备份与恢复服务
+├─ ui/                    # PySide6 界面与 QSS 样式
 └─ utils/
 
-tests/
+scripts/                  # 演示、构建和发布脚本
+tests/                    # 业务、集成与 UI 测试
 ```
 
-## Phase 1 演示
+## 技术栈
 
-以下命令会在独立目录中创建示例批次、物品和三份附件，并输出缺失材料；不会修改正式的 `data/app.db`：
+Python 3.12+、PySide6、SQLite、SQLAlchemy 2.x、Alembic、pytest、PyInstaller。
 
-```powershell
-python scripts/demo_phase1.py
-```
+## 版本控制与隐私
 
-默认演示数据位于 `data/phase1-demo/`。可通过 `--workspace` 指定其他位置：
-
-```powershell
-python scripts/demo_phase1.py --workspace C:\temp\reimbursement-phase1-demo
-```
-
-业务实现顺序以 `PHASE1_TASKS.md` 为准。
+仓库只保存应用代码、测试、迁移、文档和构建配置。`.gitignore` 会排除本地数据库、附件归档、备份、日志、构建产物和虚拟环境，避免将真实报销材料提交到 Git。
