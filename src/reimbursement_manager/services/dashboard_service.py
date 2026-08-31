@@ -6,6 +6,9 @@ from reimbursement_manager.database import DatabaseManager
 from reimbursement_manager.database.repositories import ItemRepository
 from reimbursement_manager.domain import ReimbursementStatus
 from reimbursement_manager.services.completeness_service import CompletenessService
+from reimbursement_manager.services.submission_readiness_service import (
+    SubmissionReadinessService,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,9 +36,11 @@ class DashboardService:
         self,
         database: DatabaseManager,
         completeness_service: CompletenessService,
+        submission_readiness_service: SubmissionReadinessService | None = None,
     ) -> None:
         self._database = database
         self._completeness_service = completeness_service
+        self._submission_readiness_service = submission_readiness_service
 
     def get_data(self) -> DashboardData:
         with self._database.transaction() as session:
@@ -47,9 +52,12 @@ class DashboardService:
         reimbursed_count = 0
         for item in items:
             completeness = self._completeness_service.calculate(item.id)
-            if completeness.is_complete:
+            if (
+                item.status is ReimbursementStatus.COLLECTING
+                and self._is_ready_to_submit(item.id, completeness.is_complete)
+            ):
                 complete_count += 1
-            else:
+            if not completeness.is_complete:
                 incomplete_items.append(
                     IncompleteDashboardItem(
                         item_id=item.id,
@@ -74,3 +82,8 @@ class DashboardService:
             reimbursed_count=reimbursed_count,
             incomplete_items=tuple(incomplete_items),
         )
+
+    def _is_ready_to_submit(self, item_id: int, fallback: bool) -> bool:
+        if self._submission_readiness_service is None:
+            return fallback
+        return self._submission_readiness_service.calculate(item_id).is_ready

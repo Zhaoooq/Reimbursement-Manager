@@ -79,7 +79,7 @@ def test_get_data_counts_material_completeness_and_workflow_statuses(
     data = dashboard.get_data()
 
     assert data.incomplete_count == 1
-    assert data.complete_count == 3
+    assert data.complete_count == 1
     assert data.submitted_count == 1
     assert data.reimbursed_count == 1
     assert len(data.incomplete_items) == 1

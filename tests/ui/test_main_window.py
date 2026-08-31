@@ -22,8 +22,9 @@ from PySide6.QtWidgets import (
 )
 
 from reimbursement_manager.database import DatabaseManager
-from reimbursement_manager.database.models import Base
+from reimbursement_manager.database.models import Base, Item
 from reimbursement_manager.database.repositories import MaterialTypeRepository
+from reimbursement_manager.domain import ReimbursementStatus
 from reimbursement_manager.services import (
     AttachmentService,
     BatchExportResult,
@@ -44,11 +45,13 @@ from reimbursement_manager.services import (
     StoragePathService,
     SubmissionReadinessService,
     TemplateService,
+    WorkflowService,
 )
 from reimbursement_manager.services.desktop_integration_service import (
     DesktopIntegrationService,
 )
 from reimbursement_manager.services.backup_service import BackupResult
+from reimbursement_manager.version import __version__
 from reimbursement_manager.services.restore_service import (
     DatabaseReplacementError,
     InvalidBackupDatabaseError,
@@ -88,7 +91,6 @@ def _dispose_qt_widgets_after_test() -> None:
 
 def test_pending_materials_page_opens_item_detail_and_returns(tmp_path) -> None:
     application = QApplication.instance() or QApplication([])
-    del application
     database = DatabaseManager.in_memory()
     Base.metadata.create_all(database.engine)
     batch = BatchService(database).create_batch(name="8月实验耗材")
@@ -110,9 +112,15 @@ def test_pending_materials_page_opens_item_detail_and_returns(tmp_path) -> None:
         ),
     )
     try:
+        window.show()
+        application.processEvents()
+        home_item = window.navigation.item(0)
+        primary_navigation = window.navigation._primary_list
         window.navigation.setCurrentRow(PENDING_MATERIALS_PAGE_INDEX)
         assert window.pending_materials_table.rowCount() == 1
         assert window.pending_materials_table.item(0, 0).text() == item.name
+        assert primary_navigation.indexFromItem(home_item).isValid()
+        assert primary_navigation.visualItemRect(home_item).y() >= 0
 
         window.pending_materials_table.cellDoubleClicked.emit(0, 0)
         assert window.pages.currentIndex() == ITEM_DETAIL_PAGE_INDEX
@@ -120,6 +128,12 @@ def test_pending_materials_page_opens_item_detail_and_returns(tmp_path) -> None:
 
         window.back_to_all_items_button.click()
         assert window.pages.currentIndex() == PENDING_MATERIALS_PAGE_INDEX
+
+        window.navigation.setCurrentRow(0)
+        assert window.pages.currentIndex() == 0
+        assert home_item.isSelected()
+        assert primary_navigation.indexFromItem(home_item).isValid()
+        assert primary_navigation.visualItemRect(home_item).y() >= 0
     finally:
         window.close()
         database.dispose()
@@ -144,12 +158,16 @@ def test_pending_materials_page_shows_empty_state_when_all_items_are_ready(tmp_p
     )
     try:
         window.navigation.setCurrentRow(PENDING_MATERIALS_PAGE_INDEX)
+        assert window.pending_materials_subtitle.text() == (
+            "集中处理仍缺材料或尚未准备好提交的物品"
+        )
         assert window.pending_materials_table.rowCount() == 0
         assert window.pending_materials_empty_state.isHidden() is False
         assert window.pending_materials_empty_title.text() == (
-            "当前没有待补材料或待生成提交材料的物品。"
+            "当前没有待处理事项"
         )
         assert window.pending_materials_table.isHidden() is True
+        assert window.pending_materials_list_surface.isHidden() is True
         assert window.pending_materials_summary_label.text() == "还有 0 个物品需要处理"
     finally:
         window.close()
@@ -244,15 +262,101 @@ def test_pending_materials_separates_collection_and_submission_states(tmp_path) 
         }
         incomplete_row = rows_by_name[collection_incomplete.name]
         assert window.pending_materials_table.item(incomplete_row, 2).text() == "3 / 4"
-        assert window.pending_materials_table.item(incomplete_row, 3).text() == "缺：发票"
+        assert window.pending_materials_table.item(incomplete_row, 3).text() == "缺少：发票"
         assert window.pending_materials_table.item(incomplete_row, 4).text() == "1 / 3"
 
         submission_row = rows_by_name[submission_incomplete.name]
-        assert window.pending_materials_table.item(submission_row, 2).text() == "4 / 4 ✓"
+        assert window.pending_materials_table.item(submission_row, 2).text() == "4 / 4"
         assert window.pending_materials_table.item(submission_row, 3).text() == "材料完整"
         assert window.pending_materials_table.item(submission_row, 4).text() == "2 / 3"
-        assert window.pending_materials_table.item(submission_row, 5).text() == "缺：合并支付截图"
+        assert window.pending_materials_table.item(submission_row, 5).text() == "缺少：最终支付截图"
         assert submission_ready.name not in rows_by_name
+    finally:
+        window.close()
+        database.dispose()
+
+
+def test_pending_materials_refreshes_after_final_payment_changes_and_item_delete(
+    tmp_path,
+) -> None:
+    """The view refreshes service-provided pending data after each material change."""
+    application = QApplication.instance() or QApplication([])
+    del application
+    database = DatabaseManager.in_memory()
+    Base.metadata.create_all(database.engine)
+    batch = BatchService(database).create_batch(name="待补材料刷新")
+    item_service = ItemService(database)
+    template = TemplateService(database).ensure_default_template()
+    item = item_service.create_item(
+        batch_id=batch.id, template_id=template.id, sequence_number=1, name="待提交物品"
+    )
+    storage = StoragePathService(tmp_path / "archive")
+    attachments = AttachmentService(database, storage)
+    item_service = ItemService(database, attachments)
+    with database.transaction() as session:
+        material_types = MaterialTypeRepository(session)
+        material_type_ids = {
+            code: material_types.get_by_code(code).id
+            for code in (
+                "physical_photo",
+                "payment_screenshot",
+                "invoice",
+                "order_screenshot",
+            )
+        }
+    for code, color in (
+        ("physical_photo", "red"),
+        ("payment_screenshot", "blue"),
+        ("order_screenshot", "green"),
+    ):
+        source = tmp_path / f"{code}.png"
+        image = QImage(2, 2, QImage.Format.Format_RGB32)
+        image.fill(QColor(color))
+        assert image.save(str(source), "PNG")
+        attachments.add_attachment(
+            item_id=item.id,
+            material_type_id=material_type_ids[code],
+            source_path=source,
+        )
+    invoice = tmp_path / "invoice.pdf"
+    invoice.write_bytes(b"invoice")
+    attachments.add_attachment(
+        item_id=item.id,
+        material_type_id=material_type_ids["invoice"],
+        source_path=invoice,
+    )
+
+    completeness = CompletenessService(database, storage)
+    submission = SubmissionReadinessService(database, storage)
+    window = MainWindow(
+        item_service=item_service,
+        completeness_service=completeness,
+        attachment_service=attachments,
+        submission_readiness_service=submission,
+        pending_materials_service=PendingMaterialsService(
+            item_service, completeness, submission
+        ),
+    )
+    try:
+        window.navigation.setCurrentRow(PENDING_MATERIALS_PAGE_INDEX)
+        assert window.pending_materials_table.rowCount() == 1
+
+        PaymentScreenshotMergeService(database, storage).generate(item.id)
+        window.refresh_pending_materials()
+        assert window.pending_materials_table.rowCount() == 0
+
+        derived_attachment = next(
+            attachment
+            for attachment in attachments.list_attachments(item.id)
+            if attachment.is_derived
+        )
+        attachments.remove_attachment(derived_attachment.id)
+        window.refresh_pending_materials()
+        assert window.pending_materials_table.rowCount() == 1
+
+        item_service.delete_item(item.id)
+        window.refresh_pending_materials()
+        assert window.pending_materials_table.rowCount() == 0
     finally:
         window.close()
         database.dispose()
@@ -301,7 +405,8 @@ def test_main_window_displays_dashboard_data() -> None:
     del application
     window = MainWindow(DashboardServiceStub())  # type: ignore[arg-type]
     try:
-        assert window.dashboard_summary_labels["待补材料"].text() == "1"
+        assert len(window.findChildren(QFrame, "dashboardStatCard")) == 4
+        assert window.dashboard_summary_labels["待处理"].text() == "1"
         assert window.dashboard_summary_labels["可提交"].text() == "2"
         assert window.dashboard_summary_labels["已提交"].text() == "3"
         assert window.dashboard_summary_labels["已报销"].text() == "4"
@@ -311,11 +416,18 @@ def test_main_window_displays_dashboard_data() -> None:
             pending_item.findChild(QLabel, "dashboardItemName").text()
             == "树莓派 Zero 2 W"
         )
-        assert (
-            pending_item.findChild(QLabel, "dashboardProgress").text()
-            == "材料收集 3 / 4"
-        )
-        assert pending_item.findChild(QLabel, "dashboardMissing").text() == "缺：发票"
+        assert pending_item.findChild(QLabel, "dashboardItemBatch").text() == "所属批次：—"
+        assert [
+            label.text()
+            for label in pending_item.findChildren(QLabel, "dashboardProgressLabel")
+        ] == ["材料收集"]
+        assert [
+            label.text()
+            for label in pending_item.findChildren(QLabel, "dashboardProgressValue")
+        ] == ["3 / 4"]
+        assert pending_item.findChild(QLabel, "dashboardMissing").text() == "缺少：发票"
+        assert window.dashboard_pending_summary.text() == "还有 1 个物品需要处理"
+        window.resize(1100, 700)
     finally:
         window.close()
 
@@ -327,8 +439,20 @@ def test_dashboard_shows_empty_state_when_no_items_need_attention() -> None:
     try:
         assert window.dashboard_pending_items == []
         assert window.dashboard_empty_state.text() == (
-            "当前没有待处理的报销材料。\n所有物品的提交材料都已准备完成。"
+            "当前没有待处理事项\n所有物品的提交材料都已准备完成。"
         )
+    finally:
+        window.close()
+
+
+def test_dashboard_constructs_and_reflows_stat_cards_on_resize() -> None:
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow(DashboardServiceStub())  # type: ignore[arg-type]
+    try:
+        window.show()
+        window.resize(1100, 700)
+        application.processEvents()
+        assert window.dashboard_stats_grid.layout().itemAtPosition(0, 3) is not None
     finally:
         window.close()
 
@@ -351,6 +475,7 @@ def test_dashboard_reuses_injected_services_for_batch_and_submission(tmp_path) -
         DashboardService(database, completeness),
         batch_service=batch_service,
         item_service=item_service,
+        completeness_service=completeness,
         submission_readiness_service=SubmissionReadinessService(database, storage),
     )
     try:
@@ -360,8 +485,14 @@ def test_dashboard_reuses_injected_services_for_batch_and_submission(tmp_path) -
         )
         assert [
             label.text()
-            for label in pending_item.findChildren(QLabel, "dashboardProgress")
-        ] == ["材料收集 0 / 4", "提交材料 0 / 3"]
+            for label in pending_item.findChildren(QLabel, "dashboardProgressLabel")
+        ] == ["材料收集", "提交材料"]
+        assert [
+            label.text()
+            for label in pending_item.findChildren(QLabel, "dashboardProgressValue")
+        ] == ["0 / 4", "0 / 3"]
+        pending_item.findChild(QPushButton, "dashboardItemDetailButton").click()
+        assert window.pages.currentIndex() == ITEM_DETAIL_PAGE_INDEX
         assert item.name == "树莓派"
     finally:
         window.close()
@@ -402,15 +533,15 @@ def test_batch_list_displays_batches_and_refreshes_after_creation(monkeypatch) -
     try:
         assert window.batch_table.rowCount() == 1
         assert [
-            window.batch_table.item(0, column).text() for column in range(4)
-        ] == ["已有批次", window.batch_table.item(0, 1).text(), "0", "¥0.00"]
+            window.batch_table.item(0, column).text() for column in range(5)
+        ] == ["已有批次", window.batch_table.item(0, 1).text(), "0", "¥0.00", "收集中"]
 
         window.new_batch_button.click()
 
         assert window.batch_table.rowCount() == 2
         assert [
-            window.batch_table.item(1, column).text() for column in range(4)
-        ] == ["新批次", window.batch_table.item(1, 1).text(), "0", "¥0.00"]
+            window.batch_table.item(1, column).text() for column in range(5)
+        ] == ["新批次", window.batch_table.item(1, 1).text(), "0", "¥0.00", "收集中"]
         assert batch_service.list_batches()[1].reimburser == "张三"
         assert batch_service.list_batches()[1].project_name == "测试项目"
         assert batch_service.list_batches()[1].notes == "测试备注"
@@ -499,6 +630,8 @@ def test_batch_detail_uses_compact_summary_empty_state_and_item_navigation(tmp_p
         batch_service=batch_service,
         item_service=item_service,
         completeness_service=completeness,
+        export_service=object(),
+        workflow_service=object(),
     )
     try:
         window.batch_table.cellDoubleClicked.emit(1, 0)
@@ -506,8 +639,21 @@ def test_batch_detail_uses_compact_summary_empty_state_and_item_navigation(tmp_p
         assert window.back_to_batch_list_button.text() == "\u2190 \u62a5\u9500\u6279\u6b21"
         assert window.batch_detail_summary_label.text() == "1 \u4e2a\u7269\u54c1 \u00b7 \u00a5123.45"
         assert window.new_item_button.text() == "+ \u65b0\u589e\u7269\u54c1"
-        assert window.batch_detail_table.isHidden() is False
+        assert window.new_item_button.isEnabled() is True
+        assert window.export_batch_materials_button.isEnabled() is True
+        assert window.batch_detail_overview_count_label.text() == "1 \u4e2a"
+        assert window.batch_detail_overview_amount_label.text() == "\u00a5123.45"
+        assert window.batch_detail_workflow_summary_label.text() == "1 \u4e2a\u6536\u96c6\u4e2d"
+        assert window.batch_mark_submitted_button.text() == "\u6807\u8bb0\u6279\u6b21\u5df2\u63d0\u4ea4"
+        assert window.batch_mark_reimbursed_button.text() == "\u6807\u8bb0\u6279\u6b21\u5df2\u62a5\u9500"
+        assert window.batch_mark_submitted_button.isEnabled() is True
+        assert window.batch_mark_reimbursed_button.isEnabled() is True
+        assert window.delete_batch_button.text() == "\u5220\u9664\u6279\u6b21"
+        assert window.batch_detail_list_surface.isHidden() is False
         assert window.batch_detail_empty_state.isHidden() is True
+        assert window.batch_detail_table.horizontalHeaderItem(4).text() == "\u62a5\u9500\u72b6\u6001"
+        assert window.batch_detail_table.item(0, 4).text() == "\u6536\u96c6\u4e2d"
+        assert window.batch_detail_table.cellWidget(0, 4).text() == "\u6536\u96c6\u4e2d"
         assert window.batch_detail_table.item(0, 1).textAlignment() & int(
             Qt.AlignmentFlag.AlignRight
         )
@@ -515,9 +661,12 @@ def test_batch_detail_uses_compact_summary_empty_state_and_item_navigation(tmp_p
         window.batch_detail_table.cellDoubleClicked.emit(0, 0)
         assert window.pages.currentIndex() == ITEM_DETAIL_PAGE_INDEX
         assert window.item_detail_name_label.text() == item.name
+        window.back_to_all_items_button.click()
+        assert window.pages.currentIndex() == BATCH_DETAIL_PAGE_INDEX
+        assert window.navigation.currentRow() == BATCH_LIST_PAGE_INDEX
 
         window.batch_table.cellDoubleClicked.emit(0, 0)
-        assert window.batch_detail_table.isHidden() is True
+        assert window.batch_detail_list_surface.isHidden() is True
         assert window.batch_detail_empty_state.isHidden() is False
         assert window.empty_new_item_button.text() == "+ \u65b0\u589e\u7269\u54c1"
         assert empty_batch.name == "\u7a7a\u6279\u6b21"
@@ -623,8 +772,9 @@ def test_batch_list_empty_state_exposes_creation_entry() -> None:
     window = MainWindow(batch_service=BatchService(database))
     try:
         assert window.batch_list_page.findChild(QLabel, "pageTitle").text() == "报销批次"
+        assert window.batch_list_subtitle.text() == "管理当前和历史报销批次"
         assert window.new_batch_button.text() == "+ 新建批次"
-        assert window.batch_table.isHidden() is True
+        assert window.batch_list_surface.isHidden() is True
         assert window.batch_empty_state.isHidden() is False
         assert "暂无报销批次" in [
             label.text() for label in window.batch_empty_state.findChildren(QLabel)
@@ -645,7 +795,7 @@ def test_batch_list_applies_alignment_and_hides_empty_state_when_populated() -> 
     window = MainWindow(batch_service=batch_service)
     try:
         assert window.batch_table.rowCount() == 1
-        assert window.batch_table.isHidden() is False
+        assert window.batch_list_surface.isHidden() is False
         assert window.batch_empty_state.isHidden() is True
         assert window.batch_table.item(0, 2).textAlignment() & int(
             Qt.AlignmentFlag.AlignRight
@@ -653,6 +803,9 @@ def test_batch_list_applies_alignment_and_hides_empty_state_when_populated() -> 
         assert window.batch_table.item(0, 3).textAlignment() & int(
             Qt.AlignmentFlag.AlignRight
         )
+        assert window.batch_table.item(0, 4).text() == "收集中"
+        assert window.batch_table.horizontalHeader().isHidden() is True
+        assert window.batch_table.verticalHeader().defaultSectionSize() == 52
     finally:
         window.close()
         database.dispose()
@@ -691,7 +844,10 @@ def test_template_management_list_shows_existing_template() -> None:
         assert [
             window.template_table.item(0, column).text()
             for column in range(3)
-        ] == [template.name, "4", "4"]
+        ] == [template.name, "4 项材料 · 4 项必需", "›"]
+        assert window.findChild(QLabel, "templatePageSubtitle").text() == (
+            "管理新建报销物品时使用的材料清单"
+        )
     finally:
         window.close()
         database.dispose()
@@ -787,6 +943,40 @@ def test_template_editor_rejects_blank_name_without_crashing(monkeypatch) -> Non
         database.dispose()
 
 
+def test_template_editor_changes_do_not_change_existing_item_materials() -> None:
+    application = QApplication.instance() or QApplication([])
+    del application
+    database = DatabaseManager.in_memory()
+    Base.metadata.create_all(database.engine)
+    template_service = TemplateService(database)
+    template = template_service.ensure_default_template()
+    batch = BatchService(database).create_batch(name="模板快照")
+    item_service = ItemService(database)
+    item = item_service.create_item(
+        batch_id=batch.id,
+        template_id=template.id,
+        sequence_number=1,
+        name="已有物品",
+    )
+    editor = TemplateEditorDialog(
+        template_service, template_service.list_material_types(), template
+    )
+    try:
+        editor.material_inputs["invoice"][0].setChecked(False)
+        editor._save()
+
+        stored_item = item_service.get_item(item.id)
+        assert {requirement.material_type.code for requirement in stored_item.requirements} == {
+            "physical_photo",
+            "payment_screenshot",
+            "invoice",
+            "order_screenshot",
+        }
+    finally:
+        editor.close()
+        database.dispose()
+
+
 def test_new_item_dialog_converts_amount_to_cents_without_float() -> None:
     application = QApplication.instance() or QApplication([])
     del application
@@ -844,7 +1034,7 @@ def test_all_items_page_displays_and_searches_items(tmp_path) -> None:
         assert window.all_items_table.rowCount() == 2
         assert [
             window.all_items_table.item(0, column).text()
-            for column in range(8)
+            for column in range(7)
         ] == [
             "树莓派 Zero 2 W",
             "实验耗材",
@@ -853,9 +1043,9 @@ def test_all_items_page_displays_and_searches_items(tmp_path) -> None:
             "—",
             "0 / 4",
             "实物照片、支付截图、发票、订单截图",
-            "收集中",
         ]
         assert window.all_items_title.text() == "所有物品"
+        assert window.all_items_subtitle.text() == "查看和搜索全部报销物品"
         assert (
             window.all_items_search_input.placeholderText()
             == "搜索物品、商家或订单号"
@@ -864,6 +1054,7 @@ def test_all_items_page_displays_and_searches_items(tmp_path) -> None:
             window.all_items_table.item(0, 2).textAlignment()
             == int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         )
+        assert window.all_items_table.cellWidget(0, 7).text() == "收集中"
 
         window.all_items_search_input.setText("电子器材")
         assert window.all_items_table.rowCount() == 1
@@ -875,6 +1066,7 @@ def test_all_items_page_displays_and_searches_items(tmp_path) -> None:
         window.all_items_search_input.setText("不存在")
         assert window.all_items_table.rowCount() == 0
         assert window.all_items_empty_title.text() == "没有找到匹配的物品"
+        assert window.all_items_empty_description.text() == "尝试使用其他关键词。"
 
         window.all_items_search_input.clear()
         assert window.all_items_table.rowCount() == 2
@@ -946,60 +1138,42 @@ def test_all_items_opens_item_detail_and_returns_with_all_attachments(
         window.navigation.setCurrentRow(2)
         assert window.all_items_table.item(0, 5).text() == "4 / 4 ✓"
         assert window.all_items_table.item(0, 6).text() == "材料完整"
-        assert window.all_items_table.item(0, 7).text() == "收集中"
+        assert window.all_items_table.cellWidget(0, 7).text() == "收集中"
         window.all_items_table.cellDoubleClicked.emit(0, 0)
 
         assert window.pages.currentIndex() == ITEM_DETAIL_PAGE_INDEX
         assert window.item_detail_name_label.text() == "树莓派 Zero 2 W"
         assert window.item_detail_amount_label.text() == "¥123.45"
-        assert window.item_detail_purchase_date_label.text() == "2026-08-29"
-        assert window.item_detail_platform_label.text() == "淘宝"
-        assert window.item_detail_merchant_label.text() == "电子器材店"
-        assert window.item_detail_order_number_label.text() == "ORDER-001"
-        assert window.item_detail_batch_label.text() == "实验耗材"
-        assert window.item_detail_completeness_label.text() == "材料完整度：4 / 4\n100%\n材料完整"
-        assert window.item_detail_submission_readiness_label.text() == (
-            "提交材料：2 / 3\n缺：合并支付截图"
-        )
-        assert window.item_detail_materials_tree.topLevelItemCount() == 4
-        first_requirement = window.item_detail_materials_tree.topLevelItem(0)
-        assert first_requirement.childCount() == 1
+        assert window.item_detail_primary_metadata_label.text() == "淘宝 · 2026-08-29"
+        assert window.item_detail_merchant_label.text() == "商家：电子器材店"
+        assert window.item_detail_order_number_label.text() == "订单号：ORDER-001"
+        assert window.item_detail_batch_label.text() == "所属批次：实验耗材"
+        assert window.item_detail_collection_count_label.text() == "4 / 4"
+        assert window.item_detail_collection_percentage_label.text() == "100%"
+        assert window.item_detail_completeness_label.text() == "材料完整"
+        assert window.item_detail_submission_count_label.text() == "2 / 3"
+        assert window.item_detail_submission_readiness_label.text() == "缺少：合并支付截图"
+        sections = _material_sections(window)
+        assert len(sections) == 4
+        first_requirement = sections[0]
         cards = _attachment_cards(window, requirement_index=0)
         assert len(cards) == 2
-        assert {card.findChild(QLabel, "attachmentFilename").text() for card in cards} == {
+        assert {card.findChild(QLabel, "attachmentFilename").toolTip() for card in cards} == {
             attachments[0].stored_filename,
             attachments[-1].stored_filename,
         }
-        assert window.item_detail_materials_tree.headerItem().text(2) == "操作"
-        materials_header = window.item_detail_materials_tree.header()
-        assert materials_header.sectionResizeMode(1) == (
-            QHeaderView.ResizeMode.Stretch
-        )
-        assert materials_header.sectionResizeMode(2) == (
-            QHeaderView.ResizeMode.Fixed
-        )
-        assert window.item_detail_materials_tree.columnWidth(2) == 120
-        add_attachment_button = window.item_detail_materials_tree.itemWidget(
-            first_requirement, 2
+        assert first_requirement.findChild(QLabel, "materialSectionTitle") is not None
+        assert first_requirement.findChild(QLabel, "materialRequirementBadge").text() == "必需"
+        assert first_requirement.findChild(QLabel, "materialAttachmentCount").text() == "2 个附件"
+        add_attachment_button = first_requirement.findChild(
+            QPushButton, "itemDetailAddAttachmentButton"
         )
         assert add_attachment_button is not None
-        assert first_requirement.sizeHint(2).width() >= (
-            add_attachment_button.sizeHint().width()
-        )
-        assert first_requirement.sizeHint(2).height() >= (
-            add_attachment_button.sizeHint().height()
-        )
         window.resize(1015, 800)
         window.show()
         QApplication.processEvents()
-        assert (
-            materials_header.sectionViewportPosition(2)
-            + materials_header.sectionSize(2)
-            <= window.item_detail_materials_tree.viewport().width()
-        )
-        assert window.item_detail_materials_tree.itemWidget(
-            first_requirement.child(0), 0
-        ) is not None
+        assert window.item_detail_scroll_area.horizontalScrollBar().maximum() == 0
+        assert first_requirement.findChild(QWidget, "attachmentGrid") is not None
 
         window.back_to_all_items_button.click()
         assert window.pages.currentIndex() == 2
@@ -1034,10 +1208,17 @@ def test_item_detail_marks_unuploaded_optional_material_as_optional(tmp_path) ->
         window.navigation.setCurrentRow(2)
         window.all_items_table.cellDoubleClicked.emit(0, 0)
 
-        optional_requirement = window.item_detail_materials_tree.topLevelItem(2)
-        assert optional_requirement.text(0).startswith("○")
-        assert optional_requirement.text(1) == "0 个附件 · 可选"
-        assert optional_requirement.child(0).text(1) == "暂未添加（可选）"
+        optional_requirement = _material_sections(window)[2]
+        assert optional_requirement.findChild(
+            QLabel, "materialRequirementBadge"
+        ).text() == "可选"
+        assert optional_requirement.findChild(
+            QLabel, "materialAttachmentCount"
+        ).text() == "0 个附件"
+        assert optional_requirement.findChild(
+            QLabel, "materialOptionalState"
+        ).text() == "暂无附件"
+        assert optional_requirement.findChild(QLabel, "materialMissingState") is None
         assert window.item_detail_collection_progress.value() == 0
         assert window.item_detail_scroll_area.widget() is not None
         assert item.id > 0
@@ -1078,11 +1259,7 @@ def test_item_detail_adds_attachment_and_refreshes_completeness(
     try:
         window.navigation.setCurrentRow(2)
         window.all_items_table.cellDoubleClicked.emit(0, 0)
-        invoice_requirement = window.item_detail_materials_tree.topLevelItem(2)
-        add_button = window.item_detail_materials_tree.itemWidget(
-            invoice_requirement, 2
-        )
-        assert add_button is not None
+        add_button = _material_add_button(window, 2)
         monkeypatch.setattr(
             main_window.QFileDialog,
             "getOpenFileName",
@@ -1091,18 +1268,15 @@ def test_item_detail_adds_attachment_and_refreshes_completeness(
 
         add_button.click()
 
-        refreshed_invoice_requirement = (
-            window.item_detail_materials_tree.topLevelItem(2)
-        )
         assert (
             _attachment_cards(window, requirement_index=2)[0]
             .findChild(QLabel, "attachmentFilename")
-            .text()
+            .toolTip()
             .endswith(".pdf")
         )
-        assert window.item_detail_completeness_label.text() == (
-            "材料完整度：1 / 4\n25%\n缺少：实物照片、支付截图、订单截图"
-        )
+        assert window.item_detail_collection_count_label.text() == "1 / 4"
+        assert window.item_detail_collection_percentage_label.text() == "25%"
+        assert window.item_detail_completeness_label.text() == "缺少：实物照片、支付截图、订单截图"
         assert completeness_service.calculate(item.id).completed_count == 1
     finally:
         window.close()
@@ -1154,11 +1328,7 @@ def test_item_detail_uploading_last_missing_material_marks_complete(
     try:
         window.navigation.setCurrentRow(2)
         window.all_items_table.cellDoubleClicked.emit(0, 0)
-        invoice_requirement = window.item_detail_materials_tree.topLevelItem(2)
-        add_button = window.item_detail_materials_tree.itemWidget(
-            invoice_requirement, 2
-        )
-        assert add_button is not None
+        add_button = _material_add_button(window, 2)
         monkeypatch.setattr(
             main_window.QFileDialog,
             "getOpenFileName",
@@ -1168,9 +1338,9 @@ def test_item_detail_uploading_last_missing_material_marks_complete(
         add_button.click()
 
         assert completeness_service.calculate(item.id).is_complete is True
-        assert window.item_detail_completeness_label.text() == (
-            "材料完整度：4 / 4\n100%\n材料完整"
-        )
+        assert window.item_detail_collection_count_label.text() == "4 / 4"
+        assert window.item_detail_collection_percentage_label.text() == "100%"
+        assert window.item_detail_completeness_label.text() == "材料完整"
     finally:
         window.close()
         database.dispose()
@@ -1202,9 +1372,7 @@ def test_item_detail_cancelled_upload_has_no_side_effects(tmp_path, monkeypatch)
     try:
         window.navigation.setCurrentRow(2)
         window.all_items_table.cellDoubleClicked.emit(0, 0)
-        requirement = window.item_detail_materials_tree.topLevelItem(0)
-        add_button = window.item_detail_materials_tree.itemWidget(requirement, 2)
-        assert add_button is not None
+        add_button = _material_add_button(window, 0)
         monkeypatch.setattr(
             main_window.QFileDialog, "getOpenFileName", lambda *_args: ("", "")
         )
@@ -1212,7 +1380,9 @@ def test_item_detail_cancelled_upload_has_no_side_effects(tmp_path, monkeypatch)
         add_button.click()
 
         assert attachment_service.list_attachments(item.id) == []
-        assert requirement.child(0).text(1) == "缺少材料"
+        assert _material_sections(window)[0].findChild(
+            QLabel, "materialMissingState"
+        ).text() == "缺少材料"
     finally:
         window.close()
         database.dispose()
@@ -1264,9 +1434,7 @@ def test_item_detail_duplicate_upload_shows_friendly_error(tmp_path, monkeypatch
     try:
         window.navigation.setCurrentRow(2)
         window.all_items_table.cellDoubleClicked.emit(0, 0)
-        requirement = window.item_detail_materials_tree.topLevelItem(0)
-        add_button = window.item_detail_materials_tree.itemWidget(requirement, 2)
-        assert add_button is not None
+        add_button = _material_add_button(window, 0)
 
         add_button.click()
 
@@ -1277,12 +1445,22 @@ def test_item_detail_duplicate_upload_shows_friendly_error(tmp_path, monkeypatch
         database.dispose()
 
 
+def _material_sections(window: MainWindow) -> list[QFrame]:
+    return window.item_detail_materials.findChildren(QFrame, "materialSection")
+
+
+def _material_add_button(window: MainWindow, requirement_index: int) -> QPushButton:
+    button = _material_sections(window)[requirement_index].findChild(
+        QPushButton, "itemDetailAddAttachmentButton"
+    )
+    assert button is not None
+    return button
+
+
 def _attachment_cards(window: MainWindow, *, requirement_index: int) -> list[QFrame]:
-    requirement = window.item_detail_materials_tree.topLevelItem(requirement_index)
-    attachment_row = requirement.child(0)
-    grid = window.item_detail_materials_tree.itemWidget(attachment_row, 0)
-    assert grid is not None
-    return grid.findChildren(QFrame, "attachmentCard")
+    return _material_sections(window)[requirement_index].findChildren(
+        QFrame, "attachmentCard"
+    )
 
 
 def _attachment_action_button(
@@ -1379,6 +1557,108 @@ def _create_item_detail_for_export(
     return window, database, item.id
 
 
+def _create_item_detail_workflow_window(
+    tmp_path: Path, status: ReimbursementStatus
+) -> tuple[MainWindow, DatabaseManager, int]:
+    database = DatabaseManager.in_memory()
+    Base.metadata.create_all(database.engine)
+    batch = BatchService(database).create_batch(name="2026年8月实验耗材")
+    item_service = ItemService(database)
+    template = TemplateService(database).ensure_default_template()
+    item = item_service.create_item(
+        batch_id=batch.id,
+        template_id=template.id,
+        sequence_number=1,
+        name="树莓派 Zero 2 W",
+        purchase_date=date(2026, 8, 20),
+        platform="淘宝",
+        merchant="示例商家",
+        order_number="ORDER-007",
+        total_amount_cents=18000,
+    )
+    if status is not ReimbursementStatus.COLLECTING:
+        with database.transaction() as session:
+            stored_item = session.get(Item, item.id)
+            assert stored_item is not None
+            stored_item.status = status
+    storage = StoragePathService(tmp_path / "archive")
+    completeness = CompletenessService(database, storage)
+    submission = SubmissionReadinessService(database, storage)
+    window = MainWindow(
+        batch_service=BatchService(database),
+        item_service=item_service,
+        completeness_service=completeness,
+        submission_readiness_service=submission,
+        workflow_service=WorkflowService(database, submission),
+    )
+    window._populate_item_detail(item.id)
+    return window, database, item.id
+
+
+@pytest.mark.parametrize(
+    ("status", "status_text", "next_action"),
+    (
+        (ReimbursementStatus.COLLECTING, "收集中", "标记已提交"),
+        (ReimbursementStatus.SUBMITTED, "已提交", "标记已报销"),
+        (ReimbursementStatus.REIMBURSED, "已报销", "归档"),
+        (ReimbursementStatus.ARCHIVED, "已归档", None),
+    ),
+)
+def test_item_detail_header_and_workflow_card_follow_status(
+    tmp_path, status: ReimbursementStatus, status_text: str, next_action: str | None
+) -> None:
+    application = QApplication.instance() or QApplication([])
+    del application
+    window, database, _item_id = _create_item_detail_workflow_window(tmp_path, status)
+    try:
+        assert window.item_detail_name_label.text() == "树莓派 Zero 2 W"
+        assert window.item_detail_amount_label.text() == "¥180.00"
+        assert window.item_detail_primary_metadata_label.text() == "淘宝 · 2026-08-20"
+        assert window.item_detail_merchant_label.text() == "商家：示例商家"
+        assert window.item_detail_order_number_label.text() == "订单号：ORDER-007"
+        assert window.item_detail_batch_label.text() == "所属批次：2026年8月实验耗材"
+        assert window.item_detail_status_label.text() == status_text
+        assert window.item_detail_status_label.property("status") == status.value
+        assert window.item_detail_collection_count_label.text() == "0 / 4"
+        assert window.item_detail_completeness_label.text().startswith("缺少：")
+        assert window.item_detail_submission_count_label.text() == "0 / 3"
+        assert window.item_detail_submission_readiness_label.text().startswith("缺少：")
+        assert window.item_detail_workflow_button.isHidden() is (next_action is None)
+        if next_action is not None:
+            assert window.item_detail_workflow_button.text() == next_action
+    finally:
+        window.close()
+        database.dispose()
+
+
+def test_item_detail_unready_submission_confirms_then_refreshes_workflow(
+    tmp_path, monkeypatch
+) -> None:
+    application = QApplication.instance() or QApplication([])
+    del application
+    window, database, _item_id = _create_item_detail_workflow_window(
+        tmp_path, ReimbursementStatus.COLLECTING
+    )
+    questions: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        main_window.QMessageBox,
+        "question",
+        lambda _parent, title, text, *_args: (
+            questions.append((title, text)) or QMessageBox.StandardButton.Yes
+        ),
+    )
+    try:
+        window.item_detail_workflow_button.click()
+
+        assert questions and questions[0][0] == "提交材料不完整"
+        assert "缺：" in questions[0][1]
+        assert window.item_detail_status_label.text() == "已提交"
+        assert window.item_detail_workflow_button.text() == "标记已报销"
+    finally:
+        window.close()
+        database.dispose()
+
+
 def test_item_detail_exports_ready_submission_materials(tmp_path, monkeypatch) -> None:
     application = QApplication.instance() or QApplication([])
     del application
@@ -1454,7 +1734,7 @@ def test_item_detail_export_is_disabled_when_submission_is_not_ready(tmp_path) -
     window, database, _item_id = _create_item_detail_for_export(tmp_path, exporter, ready=False)
     try:
         assert not window.export_submission_materials_button.isEnabled()
-        assert "缺：实物照片" in window.item_detail_submission_readiness_label.text()
+        assert "缺少：实物照片" in window.item_detail_submission_readiness_label.text()
         window.export_submission_materials_button.click()
         assert exporter.calls == []
     finally:
@@ -1823,8 +2103,8 @@ def test_item_detail_removing_unique_invoice_refreshes_collection_and_submission
         assert (completeness.calculate(item.id).completed_count, completeness.calculate(item.id).required_count) == (3, 4)
         assert (submission.calculate(item.id).completed_count, submission.calculate(item.id).required_count) == (2, 3)
         assert [entry.name for entry in submission.calculate(item.id).missing] == ["\u53d1\u7968"]
-        assert "\u6750\u6599\u5b8c\u6574\u5ea6\uff1a3 / 4" in window.item_detail_completeness_label.text()
-        assert "\u7f3a\u5c11\uff1a\u53d1\u7968" in window.item_detail_completeness_label.text()
+        assert window.item_detail_collection_count_label.text() == "3 / 4"
+        assert window.item_detail_completeness_label.text() == "缺少：发票"
     finally:
         window.close()
         database.dispose()
@@ -1875,12 +2155,11 @@ def test_item_detail_removing_merged_payment_keeps_collection_but_updates_submis
     try:
         window.navigation.setCurrentRow(2)
         window.all_items_table.cellDoubleClicked.emit(0, 0)
-        payment_requirement = window.item_detail_materials_tree.topLevelItem(1)
         merged_card = next(
             card
             for card in _attachment_cards(window, requirement_index=1)
             if "\u5408\u5e76\u63d0\u4ea4\u6587\u4ef6"
-            in card.findChild(QLabel, "attachmentFilename").text()
+            in card.findChild(QLabel, "attachmentFilename").toolTip()
         )
         actions = merged_card.findChild(QWidget, "attachmentActions")
         assert actions is not None
@@ -1929,7 +2208,9 @@ def test_item_detail_removing_one_of_multiple_photos_keeps_material_complete(
         _attachment_action_button(window, requirement_index=0, action_index=2).click()
 
         assert len(attachments.list_attachments(item.id)) == 1
-        assert window.item_detail_materials_tree.topLevelItem(0).text(0).startswith("\u2705")
+        assert _material_sections(window)[0].findChild(
+            QLabel, "materialAttachmentCount"
+        ).text() == "1 个附件"
         assert completeness.calculate(item.id).completed_count == 1
     finally:
         window.close()
@@ -1983,7 +2264,7 @@ def test_item_detail_image_attachments_show_thumbnails_filenames_and_open(
         cards = _attachment_cards(window, requirement_index=0)
         assert len(cards) == 2
         assert all(card.findChild(QPushButton, "attachmentThumbnail") for card in cards)
-        assert {card.findChild(QLabel, "attachmentFilename").text() for card in cards} == {
+        assert {card.findChild(QLabel, "attachmentFilename").toolTip() for card in cards} == {
             attachment.stored_filename for attachment in created
         }
 
@@ -2042,6 +2323,48 @@ def test_item_detail_pdf_card_keeps_attachment_actions(tmp_path, monkeypatch) ->
         assert opened == [str(target), str(target.parent)]
         _attachment_action_button(window, requirement_index=2, action_index=2).click()
         assert attachments.list_attachments(item.id) == []
+    finally:
+        window.close()
+        database.dispose()
+
+
+def test_item_detail_generic_file_uses_file_card(tmp_path) -> None:
+    application = QApplication.instance() or QApplication([])
+    del application
+    database = DatabaseManager.in_memory()
+    Base.metadata.create_all(database.engine)
+    batch = BatchService(database).create_batch(name="通用附件")
+    item_service = ItemService(database)
+    template = TemplateService(database).ensure_default_template()
+    item = item_service.create_item(
+        batch_id=batch.id, template_id=template.id, sequence_number=1, name="树莓派"
+    )
+    storage = StoragePathService(tmp_path / "archive")
+    attachments = AttachmentService(database, storage)
+    with database.transaction() as session:
+        invoice = MaterialTypeRepository(session).get_by_code("invoice")
+        assert invoice is not None
+        invoice_id = invoice.id
+    source = tmp_path / "scan.webp"
+    source.write_bytes(b"not-a-decodable-image")
+    attachment = attachments.add_attachment(
+        item_id=item.id, material_type_id=invoice_id, source_path=source
+    )
+    window = MainWindow(
+        batch_service=BatchService(database),
+        item_service=item_service,
+        completeness_service=CompletenessService(database, storage),
+        attachment_service=attachments,
+    )
+    try:
+        window.navigation.setCurrentRow(2)
+        window.all_items_table.cellDoubleClicked.emit(0, 0)
+        card = _attachment_cards(window, requirement_index=2)[0]
+        assert card.findChild(QLabel, "attachmentFileBadge").text() == "文件"
+        assert card.findChild(QPushButton, "attachmentThumbnail") is None
+        assert card.findChild(QLabel, "attachmentFilename").toolTip() == (
+            attachment.stored_filename
+        )
     finally:
         window.close()
         database.dispose()
@@ -2131,7 +2454,7 @@ def test_item_detail_derived_png_shows_thumbnail(tmp_path) -> None:
         derived_card = next(
             card
             for card in _attachment_cards(window, requirement_index=1)
-            if "合并提交文件" in card.findChild(QLabel, "attachmentFilename").text()
+            if "合并提交文件" in card.findChild(QLabel, "attachmentFilename").toolTip()
         )
         assert derived_card.findChild(QPushButton, "attachmentThumbnail") is not None
     finally:
@@ -2230,8 +2553,10 @@ def test_payment_merge_section_shows_latest_source_thumbnails_and_empty_result(
         assert order_card.findChild(QPushButton, "attachmentThumbnail") is not None
         assert payment_card.findChild(QPushButton, "attachmentThumbnail") is not None
         assert payment_card.findChild(QLabel, "mergedPaymentSourceFilename").text() == latest.stored_filename
-        assert window.merged_payment_section.findChild(QLabel, "mergedPaymentEmpty").text() == "尚未生成合并支付截图"
-        assert window.generate_merged_payment_screenshot_button.text() == "生成合并支付截图"
+        assert window.merged_payment_section.findChild(QLabel, "mergedPaymentSectionTitle").text() == "支付凭证"
+        assert window.merged_payment_section.findChild(QLabel, "mergedPaymentSectionDescription").text() == "订单截图与支付截图将合并为最终提交用的支付截图"
+        assert window.merged_payment_section.findChild(QLabel, "mergedPaymentEmpty").text() == "尚未生成最终支付截图"
+        assert window.generate_merged_payment_screenshot_button.text() == "生成支付截图"
     finally:
         window.close()
         database.dispose()
@@ -2265,6 +2590,10 @@ def test_payment_merge_section_shows_missing_or_unsupported_sources(
     try:
         labels = window.merged_payment_section.findChildren(QLabel)
         assert expected in [label.text() for label in labels]
+        if order_suffix == ".pdf":
+            order_card = window.merged_payment_section.findChild(QFrame, "mergeOrderSource")
+            assert order_card is not None
+            assert order_card.findChild(QLabel, "mergedPaymentSourceFilename") is not None
         assert not window.generate_merged_payment_screenshot_button.isEnabled()
     finally:
         window.close()
@@ -2288,7 +2617,7 @@ def test_payment_merge_section_regenerates_and_shows_latest_result(tmp_path) -> 
         assert len(derived) == 2
         assert result_card is not None
         assert result_card.findChild(QPushButton, "attachmentThumbnail") is not None
-        assert latest.stored_filename in result_card.findChild(QLabel, "attachmentFilename").text()
+        assert latest.stored_filename in result_card.findChild(QLabel, "attachmentFilename").toolTip()
     finally:
         window.close()
         database.dispose()
@@ -2308,10 +2637,10 @@ def test_payment_merge_section_delete_refreshes_submission_readiness(
         lambda *_args: QMessageBox.StandardButton.Yes,
     )
     try:
-        assert "提交材料：2 / 3" in window.item_detail_submission_readiness_label.text()
+        assert window.item_detail_submission_count_label.text() == "2 / 3"
         window.generate_merged_payment_screenshot_button.click()
-        assert "提交材料：3 / 3" in window.item_detail_submission_readiness_label.text()
-        assert "可提交" in window.item_detail_submission_readiness_label.text()
+        assert window.item_detail_submission_count_label.text() == "3 / 3"
+        assert window.item_detail_submission_readiness_label.text() == "可提交"
 
         result_card = window.merged_payment_section.findChild(QFrame, "attachmentCard")
         assert result_card is not None
@@ -2320,8 +2649,8 @@ def test_payment_merge_section_delete_refreshes_submission_readiness(
         next(button for button in actions.findChildren(QPushButton) if button.text() == "删除").click()
 
         assert not [attachment for attachment in attachments.list_attachments(item_id) if attachment.is_derived]
-        assert "提交材料：2 / 3" in window.item_detail_submission_readiness_label.text()
-        assert "缺：合并支付截图" in window.item_detail_submission_readiness_label.text()
+        assert window.item_detail_submission_count_label.text() == "2 / 3"
+        assert window.item_detail_submission_readiness_label.text() == "缺少：合并支付截图"
     finally:
         window.close()
         database.dispose()
@@ -2404,7 +2733,7 @@ def test_item_delete_refreshes_item_list_pending_and_dashboard(tmp_path, monkeyp
         assert window.pages.currentIndex() == 2
         assert window.all_items_table.rowCount() == 0
         assert window.pending_materials_table.rowCount() == 0
-        assert window.dashboard_summary_labels["待补材料"].text() == "0"
+        assert window.dashboard_summary_labels["待处理"].text() == "0"
         with pytest.raises(Exception):
             item_service.get_item(item.id)
     finally:
@@ -2459,6 +2788,8 @@ def test_settings_page_has_backup_database_button() -> None:
     try:
         window.navigation.setCurrentRow(5)
         assert window.backup_database_button.text() == "备份数据库"
+        assert window.findChild(QLabel, "settingsSectionTitle").text() == "数据与存储"
+        assert window.archive_root_label.text() == "未配置"
     finally:
         window.close()
 
@@ -2470,6 +2801,19 @@ def test_settings_page_has_restore_database_button() -> None:
     try:
         window.navigation.setCurrentRow(5)
         assert window.restore_database_button.text() == "恢复数据库"
+        assert window.application_version_label.text() == __version__
+    finally:
+        window.close()
+
+
+def test_settings_page_displays_existing_archive_root() -> None:
+    application = QApplication.instance() or QApplication([])
+    del application
+    archive_root = Path("C:/reimbursement/archive")
+    backup_service = SimpleNamespace(_settings=SimpleNamespace(archive_root=archive_root))
+    window = MainWindow(backup_service=backup_service)
+    try:
+        assert window.archive_root_label.text() == str(archive_root)
     finally:
         window.close()
 

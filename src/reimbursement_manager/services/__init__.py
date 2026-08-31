@@ -101,6 +101,15 @@ from reimbursement_manager.services.template_service import (
     TemplateService,
     TemplateServiceError,
 )
+from reimbursement_manager.services.workflow_service import (
+    EmptyWorkflowBatchError,
+    InvalidWorkflowTransitionError,
+    SubmissionNotReadyError,
+    SubmissionNotReadyItem,
+    WorkflowBatchNotFoundError,
+    WorkflowService,
+    WorkflowServiceError,
+)
 
 __all__ = [
     "AttachmentCopyVerificationError",
@@ -176,4 +185,11 @@ __all__ = [
     "LegacyDatabaseMigrationResult",
     "LegacyDatabaseMigrationService",
     "LegacyDatabaseMigrationStatus",
+    "EmptyWorkflowBatchError",
+    "InvalidWorkflowTransitionError",
+    "SubmissionNotReadyError",
+    "SubmissionNotReadyItem",
+    "WorkflowBatchNotFoundError",
+    "WorkflowService",
+    "WorkflowServiceError",
 ]

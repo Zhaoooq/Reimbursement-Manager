@@ -22,6 +22,7 @@ from reimbursement_manager.services import (
     StoragePathService,
     SubmissionReadinessService,
     TemplateService,
+    WorkflowService,
 )
 from reimbursement_manager.services.backup_service import BackupService
 from reimbursement_manager.ui.windows import MainWindow
@@ -98,17 +99,17 @@ def main(
     completeness_service = CompletenessService(
         database, StoragePathService(settings.archive_root)
     )
-    dashboard_service = DashboardService(
-        database,
-        completeness_service,
-    )
-
     storage_path_service = StoragePathService(settings.archive_root)
     attachment_service = AttachmentService(database, storage_path_service)
     item_service = ItemService(database, attachment_service)
     batch_service = BatchService(database, storage_path_service)
     submission_readiness_service = SubmissionReadinessService(
         database, StoragePathService(settings.archive_root)
+    )
+    dashboard_service = DashboardService(
+        database,
+        completeness_service,
+        submission_readiness_service,
     )
 
     application = QApplication.instance() or QApplication([])
@@ -136,6 +137,7 @@ def main(
         ),
         backup_service=BackupService(database, settings),
         restore_service=RestoreService(database, settings),
+        workflow_service=WorkflowService(database, submission_readiness_service),
     )
     try:
         if not run_event_loop:
