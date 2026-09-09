@@ -8,8 +8,8 @@ from types import SimpleNamespace
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtGui import QColor, QImage
-from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QColor, QDragEnterEvent, QDragLeaveEvent, QDropEvent, QImage
+from PySide6.QtCore import QEvent, QMimeData, QPoint, QPointF, Qt, QUrl
 from PySide6.QtWidgets import (
     QApplication,
     QDialogButtonBox,
@@ -1386,6 +1386,145 @@ def test_item_detail_cancelled_upload_has_no_side_effects(tmp_path, monkeypatch)
     finally:
         window.close()
         database.dispose()
+
+
+def test_material_section_accepts_only_local_file_drags(tmp_path) -> None:
+    application = QApplication.instance() or QApplication([])
+    del application
+    section = main_window.MaterialDropSection()
+    source = tmp_path / "invoice.pdf"
+    source.write_bytes(b"invoice")
+
+    local_mime = QMimeData()
+    local_mime.setUrls([QUrl.fromLocalFile(str(source))])
+    local_drag = QDragEnterEvent(
+        QPoint(4, 4),
+        Qt.DropAction.CopyAction,
+        local_mime,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    section.dragEnterEvent(local_drag)
+
+    assert local_drag.isAccepted()
+    assert section.property("dropActive") is True
+
+    section.dragLeaveEvent(QDragLeaveEvent())
+    assert section.property("dropActive") is False
+
+    remote_mime = QMimeData()
+    remote_mime.setUrls([QUrl("https://example.com/invoice.pdf")])
+    remote_drag = QDragEnterEvent(
+        QPoint(4, 4),
+        Qt.DropAction.CopyAction,
+        remote_mime,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    section.dragEnterEvent(remote_drag)
+
+    assert not remote_drag.isAccepted()
+    assert section.property("dropActive") is False
+
+
+def test_dropping_multiple_files_adds_them_to_target_material(tmp_path) -> None:
+    application = QApplication.instance() or QApplication([])
+    del application
+    database = DatabaseManager.in_memory()
+    Base.metadata.create_all(database.engine)
+    batch_service = BatchService(database)
+    batch = batch_service.create_batch(name="拖放附件")
+    item_service = ItemService(database)
+    template = TemplateService(database).ensure_default_template()
+    item = item_service.create_item(
+        batch_id=batch.id,
+        template_id=template.id,
+        sequence_number=1,
+        name="树莓派 Zero 2 W",
+    )
+    storage = StoragePathService(tmp_path / "archive")
+    attachment_service = AttachmentService(database, storage)
+    sources = [tmp_path / "invoice-front.pdf", tmp_path / "invoice-back.png"]
+    for index, source in enumerate(sources):
+        source.write_bytes(f"invoice-{index}".encode())
+    window = MainWindow(
+        batch_service=batch_service,
+        item_service=item_service,
+        completeness_service=CompletenessService(database, storage),
+        attachment_service=attachment_service,
+    )
+    try:
+        window.navigation.setCurrentRow(2)
+        window.all_items_table.cellDoubleClicked.emit(0, 0)
+        invoice_section = _material_sections(window)[2]
+        invoice_material_type_id = invoice_section.property("materialTypeId")
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(str(source)) for source in sources])
+        event = QDropEvent(
+            QPointF(4, 4),
+            Qt.DropAction.CopyAction,
+            mime,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+
+        invoice_section.dropEvent(event)
+
+        added = attachment_service.list_attachments(item.id)
+        assert event.isAccepted()
+        assert len(added) == 2
+        assert {attachment.original_filename for attachment in added} == {
+            source.name for source in sources
+        }
+        assert {
+            attachment.material_type_id for attachment in added
+        } == {invoice_material_type_id}
+        assert len(_attachment_cards(window, requirement_index=2)) == 2
+        assert window.item_detail_collection_count_label.text() == "1 / 4"
+    finally:
+        window.close()
+        database.dispose()
+
+
+def test_multi_file_add_continues_after_one_duplicate(tmp_path, monkeypatch) -> None:
+    application = QApplication.instance() or QApplication([])
+    del application
+
+    class PartialAttachmentService:
+        def __init__(self) -> None:
+            self.calls: list[Path] = []
+
+        def add_attachment(self, *, source_path: Path, **_kwargs) -> object:
+            self.calls.append(source_path)
+            if source_path.name == "duplicate.pdf":
+                raise main_window.DuplicateAttachmentError(1, "hash", 10)
+            return object()
+
+    service = PartialAttachmentService()
+    warnings: list[tuple[str, str]] = []
+    refreshed: list[int] = []
+    monkeypatch.setattr(
+        main_window.QMessageBox,
+        "warning",
+        lambda _parent, title, text: warnings.append((title, text)),
+    )
+    window = MainWindow(attachment_service=service)  # type: ignore[arg-type]
+    monkeypatch.setattr(window, "_populate_item_detail", refreshed.append)
+    sources = (tmp_path / "duplicate.pdf", tmp_path / "new.pdf")
+    try:
+        window._add_attachments(1, 3, sources)
+
+        assert service.calls == list(sources)
+        assert refreshed == [1]
+        assert warnings == [
+            (
+                "部分附件未添加",
+                "已添加 1 个文件，1 个文件未能添加：\n"
+                "duplicate.pdf：该文件已经添加到这个报销物品。",
+            )
+        ]
+    finally:
+        window.close()
 
 
 def test_item_detail_duplicate_upload_shows_friendly_error(tmp_path, monkeypatch) -> None:

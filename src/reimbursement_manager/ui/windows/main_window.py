@@ -6,7 +6,17 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from PySide6.QtCore import QSignalBlocker, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QPixmap
+from PySide6.QtGui import (
+    QColor,
+    QDragEnterEvent,
+    QDragLeaveEvent,
+    QDragMoveEvent,
+    QDropEvent,
+    QFont,
+    QFontMetrics,
+    QIcon,
+    QPixmap,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -128,6 +138,66 @@ logger = logging.getLogger(__name__)
 
 _IMAGE_ATTACHMENT_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png"})
 _THUMBNAIL_SIZE = QSize(180, 120)
+
+
+class MaterialDropSection(QFrame):
+    """Accept local files dropped onto one material requirement section."""
+
+    filesDropped = Signal(object)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.setProperty("dropActive", False)
+
+    @staticmethod
+    def _local_paths(
+        event: QDragEnterEvent | QDragMoveEvent | QDropEvent,
+    ) -> tuple[Path, ...]:
+        mime_data = event.mimeData()
+        if not mime_data.hasUrls():
+            return ()
+        return tuple(
+            Path(url.toLocalFile())
+            for url in mime_data.urls()
+            if url.isLocalFile() and url.toLocalFile()
+        )
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:  # noqa: N802
+        if self._local_paths(event):
+            self._set_drop_active(True)
+            event.acceptProposedAction()
+            return
+        self._set_drop_active(False)
+        event.ignore()
+
+    def dragLeaveEvent(self, event: QDragLeaveEvent) -> None:  # noqa: N802
+        self._set_drop_active(False)
+        event.accept()
+
+    def dragMoveEvent(self, event: QDragMoveEvent) -> None:  # noqa: N802
+        if self._local_paths(event):
+            event.acceptProposedAction()
+            return
+        event.ignore()
+
+    def dropEvent(self, event: QDropEvent) -> None:  # noqa: N802
+        paths = self._local_paths(event)
+        self._set_drop_active(False)
+        if not paths:
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        self.filesDropped.emit(paths)
+
+    def _set_drop_active(self, active: bool) -> None:
+        if self.property("dropActive") is active:
+            return
+        self.setProperty("dropActive", active)
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+
 class AttachmentFlowLayout(QLayout):
     """Wrap attachment cards without imposing a horizontal scroll bar."""
 
@@ -2036,9 +2106,14 @@ class MainWindow(QMainWindow):
         is_missing: bool,
     ) -> QFrame:
         """Build one lightweight grouped material section from service-backed data."""
-        section = QFrame()
+        section = MaterialDropSection()
         section.setObjectName("materialSection")
         section.setProperty("materialTypeId", material_type_id)
+        section.filesDropped.connect(
+            lambda paths: self._add_attachments(
+                item_id, material_type_id, tuple(Path(path) for path in paths)
+            )
+        )
         layout = QVBoxLayout(section)
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(10)
@@ -2065,6 +2140,10 @@ class MainWindow(QMainWindow):
                 "materialMissingState" if is_missing else "materialOptionalState"
             )
             layout.addWidget(empty_state)
+
+        drop_hint = QLabel("可拖动一个或多个文件到此区域")
+        drop_hint.setObjectName("materialDropHint")
+        layout.addWidget(drop_hint)
 
         add_attachment_button = QPushButton("+ 添加附件")
         add_attachment_button.setObjectName("itemDetailAddAttachmentButton")
@@ -2461,35 +2540,64 @@ class MainWindow(QMainWindow):
         if not source_path:
             return
 
-        try:
-            self._attachment_service.add_attachment(
-                item_id=item_id,
-                material_type_id=material_type_id,
-                source_path=Path(source_path),
-            )
+        self._add_attachments(item_id, material_type_id, (Path(source_path),))
+
+    def _add_attachments(
+        self,
+        item_id: int,
+        material_type_id: int,
+        source_paths: tuple[Path, ...],
+    ) -> None:
+        """Import one or more files and refresh Item Detail once when successful."""
+        if self._attachment_service is None:
+            QMessageBox.warning(self, "无法添加附件", "附件服务当前不可用。")
+            return
+
+        failures: list[tuple[Path, str]] = []
+        added_count = 0
+        for source_path in source_paths:
+            try:
+                self._attachment_service.add_attachment(
+                    item_id=item_id,
+                    material_type_id=material_type_id,
+                    source_path=source_path,
+                )
+                added_count += 1
+            except DuplicateAttachmentError:
+                failures.append((source_path, "该文件已经添加到这个报销物品。"))
+            except ItemNotFoundError:
+                failures.append((source_path, "当前报销物品不存在或已失效。"))
+            except MaterialRequirementNotFoundError:
+                failures.append((source_path, "当前材料要求已失效，请刷新后重试。"))
+            except (AttachmentServiceError, OSError, SQLAlchemyError):
+                logger.exception(
+                    "Failed to add attachment %s to item %s", source_path, item_id
+                )
+                failures.append(
+                    (source_path, "添加附件失败，请确认文件可访问后重试。")
+                )
+            except Exception:
+                logger.exception(
+                    "Unexpected attachment upload failure for %s on item %s",
+                    source_path,
+                    item_id,
+                )
+                failures.append((source_path, "添加附件失败，请稍后重试。"))
+
+        if added_count:
             self._populate_item_detail(item_id)
-        except DuplicateAttachmentError:
-            QMessageBox.warning(
-                self, "无法添加附件", "该文件已经添加到这个报销物品。"
-            )
-        except ItemNotFoundError:
-            QMessageBox.warning(
-                self, "无法添加附件", "当前报销物品不存在或已失效。"
-            )
-        except MaterialRequirementNotFoundError:
-            QMessageBox.warning(
-                self, "无法添加附件", "当前材料要求已失效，请刷新后重试。"
-            )
-        except (AttachmentServiceError, OSError, SQLAlchemyError):
-            logger.exception("Failed to add attachment to item %s", item_id)
-            QMessageBox.warning(
-                self, "无法添加附件", "添加附件失败，请确认文件可访问后重试。"
-            )
-        except Exception:
-            logger.exception("Unexpected attachment upload failure for item %s", item_id)
-            QMessageBox.warning(
-                self, "无法添加附件", "添加附件失败，请稍后重试。"
-            )
+        if not failures:
+            return
+        if len(source_paths) == 1:
+            QMessageBox.warning(self, "无法添加附件", failures[0][1])
+            return
+
+        details = "\n".join(f"{path.name}：{message}" for path, message in failures)
+        QMessageBox.warning(
+            self,
+            "部分附件未添加",
+            f"已添加 {added_count} 个文件，{len(failures)} 个文件未能添加：\n{details}",
+        )
 
     def _show_all_items(self) -> None:
         self.navigation.setCurrentRow(ALL_ITEMS_PAGE_INDEX)

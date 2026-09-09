@@ -949,6 +949,11 @@ QFrame#materialSection {
     border-radius: @CARD_RADIUS@px;
 }
 
+QFrame#materialSection[dropActive="true"] {
+    background: @SELECTED_SURFACE@;
+    border-color: @ACCENT@;
+}
+
 QLabel#materialSectionTitle {
     background: transparent;
     color: @PRIMARY_TEXT@;
@@ -976,6 +981,12 @@ QLabel#materialAttachmentCount, QLabel#materialOptionalState {
     background: transparent;
     color: @SECONDARY_TEXT@;
     font-size: 13px;
+}
+
+QLabel#materialDropHint {
+    background: transparent;
+    color: @SECONDARY_TEXT@;
+    font-size: 12px;
 }
 
 QLabel#materialMissingState {
