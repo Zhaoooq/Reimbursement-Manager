@@ -19,6 +19,7 @@ import logging
 import os
 from pathlib import Path
 import re
+import ssl
 import urllib.error
 import urllib.request
 import zipfile
@@ -132,6 +133,17 @@ def locate_program_directory(root: Path) -> Path:
     raise UpdateArchiveError("更新包中没有找到主程序。")
 
 
+def _describe_connection_error(error: OSError) -> str:
+    """Turn a low-level socket/OpenSSL failure into something actionable."""
+    reason = getattr(error, "reason", error)
+    if isinstance(reason, ssl.SSLError):
+        return (
+            "无法建立安全连接（证书校验失败）。请检查系统时间是否正确，"
+            "或关闭正在改写 HTTPS 流量的代理后重试。"
+        )
+    return f"无法连接更新服务器：{reason}"
+
+
 class UpdateService:
     """Query the release feed and fetch the matching archive."""
 
@@ -210,7 +222,7 @@ class UpdateService:
                             progress(received, info.size or received)
         except (urllib.error.URLError, OSError) as error:
             partial.unlink(missing_ok=True)
-            raise UpdateUnavailableError(f"下载更新包失败：{error}") from error
+            raise UpdateUnavailableError(_describe_connection_error(error)) from error
 
         if info.size and received != info.size:
             partial.unlink(missing_ok=True)
@@ -275,7 +287,7 @@ class UpdateService:
                 f"更新服务器返回错误（HTTP {error.code}）。"
             ) from error
         except (urllib.error.URLError, OSError) as error:
-            raise UpdateUnavailableError(f"无法连接更新服务器：{error}") from error
+            raise UpdateUnavailableError(_describe_connection_error(error)) from error
 
         try:
             release = json.loads(payload)

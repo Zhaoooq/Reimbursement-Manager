@@ -886,7 +886,19 @@ class MainWindow(QMainWindow):
     def _build_settings_page(self) -> QWidget:
         page = QWidget()
         page.setObjectName("settingsPage")
-        layout = QVBoxLayout(page)
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll_area = QScrollArea()
+        scroll_area.setObjectName("settingsScrollArea")
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        page_layout.addWidget(scroll_area)
+
+        content = QWidget()
+        content.setObjectName("settingsContent")
+        scroll_area.setWidget(content)
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
 
@@ -1000,7 +1012,7 @@ class MainWindow(QMainWindow):
 
         self.update_section: UpdateSection | None = None
         if self._update_context is not None:
-            self.update_section = UpdateSection(self._update_context, page)
+            self.update_section = UpdateSection(self._update_context, content)
             layout.addWidget(self.update_section)
 
         layout.addStretch()

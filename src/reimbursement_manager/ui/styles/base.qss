@@ -822,17 +822,23 @@ QLabel#allItemsWorkflowBadge[status="archived"] {
 
 /* UI-9: pending materials keep source collection and submission readiness distinct. */
 /* UI-6: Item Detail information hierarchy and material sections. */
-QScrollArea#itemDetailScrollArea, QScrollArea#dashboardPendingArea {
+QScrollArea#itemDetailScrollArea, QScrollArea#dashboardPendingArea,
+QScrollArea#settingsScrollArea {
     background: transparent;
     border: none;
 }
 
 QScrollArea#itemDetailScrollArea QWidget#qt_scrollarea_viewport,
-QScrollArea#dashboardPendingArea QWidget#qt_scrollarea_viewport {
+QScrollArea#dashboardPendingArea QWidget#qt_scrollarea_viewport,
+QScrollArea#settingsScrollArea QWidget#qt_scrollarea_viewport {
     background: @APP_BACKGROUND@;
 }
 
 QWidget#itemDetailContent {
+    background: @APP_BACKGROUND@;
+}
+
+QWidget#settingsContent {
     background: @APP_BACKGROUND@;
 }
 

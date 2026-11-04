@@ -189,6 +189,19 @@ def test_check_for_update_reports_an_unreachable_server() -> None:
         service.check_for_update("0.2.1")
 
 
+def test_check_for_update_explains_a_certificate_failure() -> None:
+    import ssl
+
+    certificate_error = ssl.SSLCertVerificationError("certificate verify failed")
+    service = UpdateService(
+        opener=_FakeOpener(urllib.error.URLError(certificate_error))
+    )
+    with pytest.raises(UpdateUnavailableError) as error:
+        service.check_for_update("0.2.1")
+    assert "安全连接" in str(error.value)
+    assert "证书校验失败" in str(error.value)
+
+
 def _info_with_checksum(payload: bytes, digest: str | None = None):
     from reimbursement_manager.services.update_service import UpdateInfo
 
