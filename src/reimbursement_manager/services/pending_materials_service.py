@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from reimbursement_manager.domain import ReimbursementStatus
 from reimbursement_manager.services.completeness_service import CompletenessService
 from reimbursement_manager.services.item_service import ItemService
 from reimbursement_manager.services.submission_readiness_service import SubmissionReadinessService
@@ -36,9 +37,15 @@ class PendingMaterialsService:
         self._submission_readiness_service = submission_readiness_service
 
     def list_pending_items(self) -> list[PendingMaterialItem]:
-        """Return Items whose collection or submission readiness is incomplete."""
+        """Return Items that still need work inside the collection phase.
+
+        Submitted, reimbursed and archived Items are finished business: they
+        belong to history, not to a "still to be completed" worklist.
+        """
         pending_items: list[PendingMaterialItem] = []
         for item in self._item_service.search_items():
+            if item.status is not ReimbursementStatus.COLLECTING:
+                continue
             collection = self._completeness_service.calculate(item.id)
             submission = self._submission_readiness_service.calculate(item.id)
             if collection.is_complete and submission.is_ready:

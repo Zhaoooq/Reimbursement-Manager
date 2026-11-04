@@ -18,7 +18,7 @@ QFrame#sidebar {
 QLabel#appTitle {
     background: transparent;
     color: @PRIMARY_TEXT@;
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 600;
     padding: 2px 8px 8px 8px;
 }
@@ -112,6 +112,19 @@ QPushButton#primaryButton:disabled {
     background: @ACCENT_DISABLED@;
     border-color: @ACCENT_DISABLED@;
     color: @SURFACE@;
+}
+
+/* A workflow step that is still allowed but not yet recommended. */
+QPushButton#primaryButton[quiet="true"] {
+    background: @SURFACE@;
+    border-color: @BORDER@;
+    color: @ACCENT@;
+    font-weight: 600;
+}
+
+QPushButton#primaryButton[quiet="true"]:hover {
+    background: @HOVER_SURFACE@;
+    border-color: @SELECTED_BORDER@;
 }
 
 QPushButton#dangerButton {
@@ -289,7 +302,7 @@ QLabel#mergedPaymentSourceTitle, QLabel#itemDetailStatusTitle {
 QLabel#emptyStateTitle {
     background: transparent;
     color: @PRIMARY_TEXT@;
-    font-size: 16px;
+    font-size: @SECTION_TITLE_SIZE@px;
     font-weight: 600;
 }
 
@@ -433,8 +446,13 @@ QProgressBar#dashboardCollectionProgress::chunk {
 }
 
 QProgressBar#dashboardSubmissionProgress::chunk {
-    background: @SUCCESS@;
+    background: @ACCENT@;
     border-radius: 4px;
+}
+
+QProgressBar#dashboardCollectionProgress[semantic="success"]::chunk,
+QProgressBar#dashboardSubmissionProgress[semantic="success"]::chunk {
+    background: @SUCCESS@;
 }
 
 QLabel#dashboardMissing, QLabel#mergedPaymentEmpty, QLabel#mergedPaymentSourceMissing,
@@ -458,13 +476,31 @@ QPushButton#dashboardItemDetailButton {
 
 QPushButton#dashboardItemDetailButton:hover {
     background: transparent;
-    color: @ACCENT@;
-    text-decoration: underline;
+    color: @ACCENT_HOVER@;
 }
 
 QPushButton#dashboardItemDetailButton:disabled {
     background: transparent;
     color: @TERTIARY_TEXT@;
+}
+
+QLabel#dashboardStateChip {
+    border-radius: @BADGE_RADIUS@px;
+    font-size: @SECONDARY_SIZE@px;
+    min-height: 20px;
+    padding: 1px 7px;
+}
+
+QLabel#dashboardStateChip[status="incomplete"] {
+    background: @WARNING_SURFACE@;
+    border: 1px solid @WARNING_BORDER@;
+    color: @WARNING_TEXT@;
+}
+
+QLabel#dashboardStateChip[status="pending_payment"] {
+    background: @SELECTED_SURFACE@;
+    border: 1px solid @SELECTED_BORDER@;
+    color: @ACCENT@;
 }
 
 QLabel#attachmentPdfBadge, QLabel#attachmentFileBadge {
@@ -530,8 +566,22 @@ QMessageBox QLabel {
 QLabel#dialogTitle {
     background: transparent;
     color: @PRIMARY_TEXT@;
-    font-size: 18px;
+    font-size: @SECTION_TITLE_SIZE@px;
     font-weight: 600;
+}
+
+QLabel#dialogFieldGroupTitle {
+    background: transparent;
+    color: @SECONDARY_TEXT@;
+    font-size: @SECONDARY_SIZE@px;
+    font-weight: 600;
+    padding-top: 4px;
+}
+
+QLineEdit#readOnlyField {
+    background: @SECONDARY_SURFACE@;
+    border-color: @SEPARATOR@;
+    color: @SECONDARY_TEXT@;
 }
 
 QDialog#standardDialog QDialogButtonBox {
@@ -681,7 +731,6 @@ QPushButton#batchDetailBackButton {
 QPushButton#batchDetailBackButton:hover {
     background: transparent;
     color: #1f4f86;
-    text-decoration: underline;
 }
 
 /* iOS-5: Batch Detail uses compact grouped surfaces for overview and workflow. */
@@ -747,8 +796,9 @@ QTableWidget#batchDetailTable::item:selected {
 }
 
 QFrame#batchDetailDangerArea {
-    background: transparent;
-    border: none;
+    background: #FFFAFA;
+    border: 1px solid #F0D9D6;
+    border-radius: @CARD_RADIUS@px;
 }
 
 /* iOS-6: All Items remains information-dense inside a grouped list surface. */
@@ -852,8 +902,7 @@ QPushButton#itemDetailBackButton {
 
 QPushButton#itemDetailBackButton:hover {
     background: transparent;
-    color: @ACCENT@;
-    text-decoration: underline;
+    color: @ACCENT_HOVER@;
 }
 
 QLabel#itemDetailName {
@@ -896,7 +945,7 @@ QLabel#itemDetailMetadataSecondary {
 QLabel#itemDetailStatusValue {
     background: transparent;
     color: @PRIMARY_TEXT@;
-    font-size: 22px;
+    font-size: 20px;
     font-weight: 600;
 }
 
@@ -947,6 +996,23 @@ QPushButton#itemDetailExportButton {
     font-weight: 600;
 }
 
+QPushButton#itemDetailExportButton:hover {
+    background: @HOVER_SURFACE@;
+    border-color: @SELECTED_BORDER@;
+}
+
+QPushButton#itemDetailExportButton:disabled {
+    background: @SECONDARY_SURFACE@;
+    border-color: @SEPARATOR@;
+    color: @TERTIARY_TEXT@;
+}
+
+QLabel#actionHint {
+    background: transparent;
+    color: @WARNING_TEXT@;
+    font-size: @SECONDARY_SIZE@px;
+}
+
 /* iOS-9: payment evidence presents the two merge inputs and final result. */
 QFrame#mergedPaymentSection {
     background: @SURFACE@;
@@ -956,14 +1022,21 @@ QFrame#mergedPaymentSection {
 
 QFrame#mergeOrderSource, QFrame#mergePaymentSource, QFrame#mergedPaymentResult {
     background: @SECONDARY_SURFACE@;
-    border: 1px solid @BORDER@;
+    border: 1px solid transparent;
     border-radius: @CARD_RADIUS@px;
 }
 
-QLabel#mergedPaymentSectionTitle, QLabel#mergedPaymentResultTitle, QLabel#mergedPaymentSourceTitle {
+QLabel#mergedPaymentSectionTitle {
     background: transparent;
     color: @PRIMARY_TEXT@;
-    font-size: 15px;
+    font-size: @SECTION_TITLE_SIZE@px;
+    font-weight: 600;
+}
+
+QLabel#mergedPaymentResultTitle, QLabel#mergedPaymentSourceTitle {
+    background: transparent;
+    color: @PRIMARY_TEXT@;
+    font-size: @BODY_SIZE@px;
     font-weight: 600;
 }
 
@@ -1009,7 +1082,7 @@ QFrame#materialSection[dropActive="true"] {
 QLabel#materialSectionTitle {
     background: transparent;
     color: @PRIMARY_TEXT@;
-    font-size: 16px;
+    font-size: @SECTION_TITLE_SIZE@px;
     font-weight: 600;
 }
 
@@ -1061,7 +1134,6 @@ QPushButton#itemDetailAddAttachmentButton {
 
 QPushButton#itemDetailAddAttachmentButton:hover {
     color: #0066D6;
-    text-decoration: underline;
 }
 
 QFrame#attachmentCard {
@@ -1110,7 +1182,6 @@ QPushButton#attachmentTextAction {
 
 QPushButton#attachmentTextAction:hover {
     color: #0066D6;
-    text-decoration: underline;
 }
 
 QPushButton#attachmentDangerAction {
@@ -1119,7 +1190,6 @@ QPushButton#attachmentDangerAction {
 
 QPushButton#attachmentDangerAction:hover {
     color: #CC2F27;
-    text-decoration: underline;
 }
 
 QLabel#attachmentMissingFile {
@@ -1184,8 +1254,8 @@ QLabel#mergedPaymentSourceUnsupported, QLabel#materialMissingState,
 QLabel#attachmentMissingFile {
     border-radius: @BADGE_RADIUS@px;
     font-size: @SECONDARY_SIZE@px;
-    min-height: 20px;
-    padding: 2px 6px;
+    min-height: 22px;
+    padding: 2px 8px;
 }
 
 QLabel#batchDetailWorkflowBadge, QLabel#allItemsWorkflowBadge,
@@ -1193,6 +1263,30 @@ QLabel#itemDetailWorkflowBadge {
     background: @WARNING_SURFACE@;
     border: 1px solid @WARNING_BORDER@;
     color: @WARNING_TEXT@;
+}
+
+QLabel#batchDetailWorkflowBadge[status="ready"],
+QLabel#allItemsWorkflowBadge[status="ready"],
+QLabel#itemDetailWorkflowBadge[status="ready"] {
+    background: @SUCCESS_SURFACE@;
+    border-color: @SUCCESS_BORDER@;
+    color: @SUCCESS_TEXT@;
+}
+
+QLabel#batchDetailWorkflowBadge[status="incomplete"],
+QLabel#allItemsWorkflowBadge[status="incomplete"],
+QLabel#itemDetailWorkflowBadge[status="incomplete"] {
+    background: @WARNING_SURFACE@;
+    border-color: @WARNING_BORDER@;
+    color: @WARNING_TEXT@;
+}
+
+QLabel#batchDetailWorkflowBadge[status="pending_payment"],
+QLabel#allItemsWorkflowBadge[status="pending_payment"],
+QLabel#itemDetailWorkflowBadge[status="pending_payment"] {
+    background: @SELECTED_SURFACE@;
+    border-color: @SELECTED_BORDER@;
+    color: @ACCENT@;
 }
 
 QLabel#batchDetailWorkflowBadge[status="submitted"],
@@ -1246,4 +1340,14 @@ QFrame#attachmentCard:hover {
 
 QPushButton#attachmentThumbnail:hover {
     background: @SELECTED_SURFACE@;
+}
+
+/* Dashboard attention line: warning text, not a full-width banner. */
+QLabel#dashboardMissing {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    color: @WARNING_TEXT@;
+    min-height: 0;
+    padding: 0;
 }

@@ -3,8 +3,9 @@ from __future__ import annotations
 from PySide6.QtGui import QColor, QImage
 
 from reimbursement_manager.database import DatabaseManager
-from reimbursement_manager.database.models import Base
+from reimbursement_manager.database.models import Base, Item
 from reimbursement_manager.database.repositories import MaterialTypeRepository
+from reimbursement_manager.domain import ReimbursementStatus
 from reimbursement_manager.services import (
     AttachmentService,
     BatchService,
@@ -103,5 +104,25 @@ def test_pending_items_include_original_and_submission_gaps_and_refresh(tmp_path
         after_remove = pending.list_pending_items()
         assert [entry.item_id for entry in after_remove] == [item.id]
         assert after_remove[0].missing_submission_materials == ("合并支付截图",)
+    finally:
+        database.dispose()
+
+
+def test_pending_items_exclude_finished_workflow_states(tmp_path) -> None:
+    database, item, _attachments, pending = _create_pending_service(tmp_path)
+    try:
+        assert [entry.item_id for entry in pending.list_pending_items()] == [item.id]
+
+        with database.transaction() as session:
+            stored_item = session.get(Item, item.id)
+            assert stored_item is not None
+            stored_item.status = ReimbursementStatus.SUBMITTED
+        assert pending.list_pending_items() == []
+
+        with database.transaction() as session:
+            stored_item = session.get(Item, item.id)
+            assert stored_item is not None
+            stored_item.status = ReimbursementStatus.REIMBURSED
+        assert pending.list_pending_items() == []
     finally:
         database.dispose()

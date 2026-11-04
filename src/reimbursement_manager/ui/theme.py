@@ -5,8 +5,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from importlib.resources import files
 
+from PySide6.QtCore import QLibraryInfo, QTranslator
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
+
+_TRANSLATOR: QTranslator | None = None
 
 
 @dataclass(frozen=True)
@@ -64,5 +67,23 @@ def load_stylesheet(tokens: ThemeTokens = IOS_LIGHT_TOKENS) -> str:
 
 def apply_light_theme(application: QApplication) -> None:
     """Apply the single supported application-wide theme."""
+    _install_chinese_translations(application)
     application.setFont(QFont("Microsoft YaHei UI", 9))
     application.setStyleSheet(load_stylesheet())
+
+
+def _install_chinese_translations(application: QApplication) -> None:
+    """Localize Qt's own dialog buttons (Yes/No/OK/Cancel) to Chinese.
+
+    Without this the app shows English standard buttons inside an otherwise
+    Chinese interface.  Missing translation files are not fatal: the UI simply
+    falls back to Qt's built-in English strings.
+    """
+    global _TRANSLATOR
+    if _TRANSLATOR is not None:
+        return
+    translator = QTranslator(application)
+    translations_path = QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)
+    if translator.load("qtbase_zh_CN", translations_path):
+        application.installTranslator(translator)
+        _TRANSLATOR = translator

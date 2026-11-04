@@ -93,3 +93,33 @@ def test_get_data_counts_material_completeness_and_workflow_statuses(
         "发票",
         "订单截图",
     )
+
+
+def test_submitted_item_is_counted_as_submitted_not_as_pending_work(
+    database: DatabaseManager, tmp_path: Path
+) -> None:
+    template_service = TemplateService(database)
+    required_template = template_service.ensure_default_template()
+    with database.transaction() as session:
+        batch = BatchRepository(session).create(ReimbursementBatch(name="August"))
+
+    item_service = ItemService(database)
+    item = item_service.create_item(
+        batch_id=batch.id,
+        template_id=required_template.id,
+        sequence_number=1,
+        name="Submitted without attachments",
+    )
+    with database.transaction() as session:
+        stored_item = session.get(Item, item.id)
+        assert stored_item is not None
+        stored_item.status = ReimbursementStatus.SUBMITTED
+
+    data = DashboardService(
+        database,
+        CompletenessService(database, StoragePathService(tmp_path / "archive")),
+    ).get_data()
+
+    assert data.submitted_count == 1
+    assert data.incomplete_count == 0
+    assert data.incomplete_items == ()

@@ -7,6 +7,7 @@ from reimbursement_manager.database.repositories import ItemRepository
 from reimbursement_manager.domain import ReimbursementStatus
 from reimbursement_manager.services.completeness_service import CompletenessService
 from reimbursement_manager.services.submission_readiness_service import (
+    SubmissionReadinessResult,
     SubmissionReadinessService,
 )
 
@@ -18,6 +19,7 @@ class IncompleteDashboardItem:
     completed_count: int
     required_count: int
     missing_materials: tuple[str, ...]
+    status_key: str = "incomplete"
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,23 +54,36 @@ class DashboardService:
         reimbursed_count = 0
         for item in items:
             completeness = self._completeness_service.calculate(item.id)
-            if (
-                item.status is ReimbursementStatus.COLLECTING
-                and self._is_ready_to_submit(item.id, completeness.is_complete)
-            ):
-                complete_count += 1
-            if not completeness.is_complete:
-                incomplete_items.append(
-                    IncompleteDashboardItem(
-                        item_id=item.id,
-                        name=item.name,
-                        completed_count=completeness.completed_count,
-                        required_count=completeness.required_count,
-                        missing_materials=tuple(
-                            material.name for material in completeness.missing
-                        ),
+            if item.status is ReimbursementStatus.COLLECTING:
+                if self._is_ready_to_submit(item.id, completeness.is_complete):
+                    complete_count += 1
+                else:
+                    # Still collecting: the attention list must cover both a
+                    # missing source file and a missing merged payment receipt.
+                    missing_materials = tuple(
+                        material.name for material in completeness.missing
                     )
-                )
+                    status_key = "incomplete"
+                    if completeness.is_complete:
+                        submission = self._submission_readiness(item.id)
+                        if submission is not None:
+                            missing_materials = tuple(
+                                "最终支付截图"
+                                if material.name == "合并支付截图"
+                                else material.name
+                                for material in submission.missing
+                            )
+                        status_key = "pending_payment"
+                    incomplete_items.append(
+                        IncompleteDashboardItem(
+                            item_id=item.id,
+                            name=item.name,
+                            completed_count=completeness.completed_count,
+                            required_count=completeness.required_count,
+                            missing_materials=missing_materials,
+                            status_key=status_key,
+                        )
+                    )
 
             if item.status is ReimbursementStatus.SUBMITTED:
                 submitted_count += 1
@@ -87,3 +102,8 @@ class DashboardService:
         if self._submission_readiness_service is None:
             return fallback
         return self._submission_readiness_service.calculate(item_id).is_ready
+
+    def _submission_readiness(self, item_id: int) -> SubmissionReadinessResult | None:
+        if self._submission_readiness_service is None:
+            return None
+        return self._submission_readiness_service.calculate(item_id)

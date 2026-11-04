@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -50,7 +51,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from reimbursement_manager.database.models import Attachment, Item, MaterialType
-from reimbursement_manager.domain import ReimbursementStatus
+from reimbursement_manager.domain import ReimbursementStatus, display_status
 from reimbursement_manager.services.backup_service import BackupService
 from reimbursement_manager.services.restore_service import (
     DatabaseReplacementError,
@@ -122,6 +123,9 @@ ITEM_DETAIL_PAGE_INDEX = BATCH_DETAIL_PAGE_INDEX + 1
 
 ITEM_STATUS_LABELS = {
     "collecting": "收集中",
+    "incomplete": "待补材料",
+    "pending_payment": "待生成凭证",
+    "ready": "可提交",
     "submitted": "已提交",
     "reimbursed": "已报销",
     "archived": "已归档",
@@ -434,34 +438,55 @@ class NewItemDialog(QDialog):
     def __init__(self, batch_name: str, templates: list[object], parent: QWidget | None = None) -> None:
         super().__init__(parent)
         layout = _configure_dialog(self, "新增物品", minimum_width=560)
-        form = QFormLayout()
-        form.setSpacing(12)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
         self.name_input = QLineEdit()
+        self.name_input.setPlaceholderText("例如：树莓派 Zero 2 W")
         self.amount_input = QLineEdit()
         self.amount_input.setPlaceholderText("例如：23.45（留空为 0.00）")
         self.purchase_date_input = QLineEdit()
         self.purchase_date_input.setPlaceholderText("YYYY-MM-DD（可选）")
         self.platform_input = QLineEdit()
+        self.platform_input.setPlaceholderText("淘宝 / 京东 / 官网")
         self.merchant_input = QLineEdit()
+        self.merchant_input.setPlaceholderText("店铺或收款方")
         self.order_number_input = QLineEdit()
+        self.order_number_input.setPlaceholderText("可选")
         self.template_input = QComboBox()
         for template in templates:
             self.template_input.addItem(template.name, template.id)
         self.batch_input = QLineEdit(batch_name)
         self.batch_input.setReadOnly(True)
+        self.batch_input.setObjectName("readOnlyField")
         self.notes_input = QTextEdit()
-        self.notes_input.setFixedHeight(80)
-        form.addRow("物品名称 *", self.name_input)
-        form.addRow("金额", self.amount_input)
-        form.addRow("购买日期", self.purchase_date_input)
-        form.addRow("平台", self.platform_input)
-        form.addRow("商家", self.merchant_input)
-        form.addRow("订单号", self.order_number_input)
-        form.addRow("模板 *", self.template_input)
-        form.addRow("批次", self.batch_input)
-        form.addRow("备注", self.notes_input)
-        layout.addLayout(form)
+        self.notes_input.setFixedHeight(64)
+        self.notes_input.setPlaceholderText("可选")
+
+        self._build_field_group(
+            layout,
+            "基本信息",
+            (
+                ("物品名称 *", self.name_input),
+                ("金额", self.amount_input),
+                ("购买日期", self.purchase_date_input),
+            ),
+        )
+        self._build_field_group(
+            layout,
+            "采购信息",
+            (
+                ("平台", self.platform_input),
+                ("商家", self.merchant_input),
+                ("订单号", self.order_number_input),
+            ),
+        )
+        self._build_field_group(
+            layout,
+            "归档设置",
+            (
+                ("模板 *", self.template_input),
+                ("批次", self.batch_input),
+                ("备注", self.notes_input),
+            ),
+        )
 
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Save
@@ -470,6 +495,23 @@ class NewItemDialog(QDialog):
         self.buttons.rejected.connect(self.reject)
         self.buttons.accepted.connect(self._accept_if_valid)
         layout.addWidget(self.buttons)
+
+    @staticmethod
+    def _build_field_group(
+        layout: QVBoxLayout, title: str, fields: tuple[tuple[str, QWidget], ...]
+    ) -> QFormLayout:
+        """Add one titled field group so a nine-field form stays scannable."""
+        group_title = QLabel(title)
+        group_title.setObjectName("dialogFieldGroupTitle")
+        layout.addWidget(group_title)
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 4)
+        form.setSpacing(8)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        for label, widget in fields:
+            form.addRow(label, widget)
+        layout.addLayout(form)
+        return form
 
     def _accept_if_valid(self) -> None:
         try:
@@ -926,10 +968,21 @@ class MainWindow(QMainWindow):
         archive_root = getattr(
             getattr(self._backup_service, "_settings", None), "archive_root", None
         )
+        self._archive_root_path = Path(archive_root) if archive_root else None
         self.archive_root_label = QLabel(str(archive_root) if archive_root else "未配置")
         self.archive_root_label.setObjectName("settingsRowDetail")
         self.archive_root_label.setWordWrap(True)
+        self.archive_root_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
         storage_layout.addWidget(self.archive_root_label)
+        self.open_archive_root_button = QPushButton("打开目录")
+        self.open_archive_root_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.open_archive_root_button.setEnabled(self._archive_root_path is not None)
+        self.open_archive_root_button.clicked.connect(self._open_archive_root)
+        storage_layout.addWidget(
+            self.open_archive_root_button, 0, Qt.AlignmentFlag.AlignLeft
+        )
         layout.addWidget(storage_section)
 
         backup_section = QFrame()
@@ -997,8 +1050,8 @@ class MainWindow(QMainWindow):
         application_section = QFrame()
         application_section.setObjectName("settingsGroupSurface")
         application_layout = QVBoxLayout(application_section)
-        application_layout.setContentsMargins(16, 14, 16, 14)
-        application_layout.setSpacing(4)
+        application_layout.setContentsMargins(20, 20, 20, 20)
+        application_layout.setSpacing(10)
         application_title = QLabel("应用")
         application_title.setObjectName("settingsSectionTitle")
         application_layout.addWidget(application_title)
@@ -1017,6 +1070,23 @@ class MainWindow(QMainWindow):
 
         layout.addStretch()
         return page
+
+    def _open_archive_root(self) -> None:
+        """Open the configured archive root in the system file manager."""
+        path = getattr(self, "_archive_root_path", None)
+        if path is None:
+            QMessageBox.warning(self, "无法打开目录", "归档目录尚未配置。")
+            return
+        if not path.exists():
+            QMessageBox.warning(
+                self, "无法打开目录", "归档目录不存在，请检查设置或磁盘。"
+            )
+            return
+        try:
+            self._desktop_integration_service.open_folder(path)
+        except DesktopIntegrationError:
+            logger.exception("Failed to open archive root %s", path)
+            QMessageBox.warning(self, "无法打开目录", "打开目录失败，请稍后重试。")
 
     def _backup_database(self) -> None:
         backup_directory = QFileDialog.getExistingDirectory(self, "选择数据库备份目录")
@@ -1322,13 +1392,17 @@ class MainWindow(QMainWindow):
         self.pending_materials_table.setEditTriggers(
             QTableWidget.EditTrigger.NoEditTriggers
         )
-        self.pending_materials_table.setSelectionBehavior(
-            QTableWidget.SelectionBehavior.SelectRows
+        self.pending_materials_table.setSelectionMode(
+            QTableWidget.SelectionMode.NoSelection
         )
+        self.pending_materials_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.pending_materials_table.setAlternatingRowColors(True)
         self.pending_materials_table.setShowGrid(False)
-        self.pending_materials_table.cellDoubleClicked.connect(
-            self._open_pending_material_item_detail
+        self._make_table_rows_clickable(
+            self.pending_materials_table, self._open_pending_material_item_detail
+        )
+        self._align_table_headers(
+            self.pending_materials_table, center=(2, 4)
         )
         self.pending_materials_table.verticalHeader().setVisible(False)
         self.pending_materials_table.verticalHeader().setDefaultSectionSize(52)
@@ -1399,7 +1473,12 @@ class MainWindow(QMainWindow):
                 table_item = QTableWidgetItem(value)
                 if column == 0:
                     table_item.setData(Qt.ItemDataRole.UserRole, entry.item_id)
+                if column in (2, 4):
+                    table_item.setTextAlignment(
+                        Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
+                    )
                 if column in (3, 5):
+                    table_item.setToolTip(value)
                     is_complete = value in {"材料完整", "可提交"}
                     table_item.setForeground(
                         QColor(IOS_LIGHT_TOKENS.success_text)
@@ -1483,9 +1562,10 @@ class MainWindow(QMainWindow):
         self.all_items_table.setEditTriggers(
             QTableWidget.EditTrigger.NoEditTriggers
         )
-        self.all_items_table.setSelectionBehavior(
-            QTableWidget.SelectionBehavior.SelectRows
+        self.all_items_table.setSelectionMode(
+            QTableWidget.SelectionMode.NoSelection
         )
+        self.all_items_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.all_items_table.setAlternatingRowColors(True)
         self.all_items_table.setShowGrid(False)
         self.all_items_table.verticalHeader().setVisible(False)
@@ -1497,7 +1577,14 @@ class MainWindow(QMainWindow):
             self.all_items_table.horizontalHeader().setSectionResizeMode(
                 column, QHeaderView.ResizeMode.ResizeToContents
             )
-        self.all_items_table.cellDoubleClicked.connect(self._open_item_detail)
+        self.all_items_table.horizontalHeader().setSectionResizeMode(
+            7, QHeaderView.ResizeMode.Fixed
+        )
+        self.all_items_table.setColumnWidth(7, 96)
+        self._make_table_rows_clickable(self.all_items_table, self._open_item_detail)
+        self._align_table_headers(
+            self.all_items_table, right=(2,), center=(5, 7)
+        )
         list_layout.addWidget(self.all_items_table)
         layout.addWidget(self.all_items_list_surface, 1)
 
@@ -1515,6 +1602,17 @@ class MainWindow(QMainWindow):
         self.all_items_empty_description.setObjectName("emptyStateDescription")
         self.all_items_empty_description.setAlignment(Qt.AlignmentFlag.AlignCenter)
         empty_layout.addWidget(self.all_items_empty_description)
+        self.all_items_clear_search_button = QPushButton("清空搜索")
+        self.all_items_clear_search_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.all_items_clear_search_button.clicked.connect(
+            self.all_items_search_input.clear
+        )
+        self.all_items_clear_search_button.setVisible(False)
+        empty_layout.addWidget(
+            self.all_items_clear_search_button,
+            0,
+            Qt.AlignmentFlag.AlignCenter,
+        )
         layout.addWidget(self.all_items_empty_state, 1)
         self.refresh_all_items()
         return page
@@ -1534,6 +1632,9 @@ class MainWindow(QMainWindow):
         query = self.all_items_search_input.text()
         for item in self._item_service.search_items(query):
             completeness = self._completeness_service.calculate(item.id)
+            item_status = self._display_item_status(
+                item.id, item.status, collection_complete=completeness.is_complete
+            )
             missing_materials = "、".join(
                 material.name for material in completeness.missing
             )
@@ -1545,17 +1646,9 @@ class MainWindow(QMainWindow):
                 self._format_cents(item.total_amount_cents),
                 item.purchase_date.isoformat() if item.purchase_date else "—",
                 item.platform or "—",
-                (
-                    f"{completeness.completed_count} / "
-                    f"{completeness.required_count} ✓"
-                    if completeness.is_complete
-                    else (
-                        f"{completeness.completed_count} / "
-                        f"{completeness.required_count}"
-                    )
-                ),
+                f"{completeness.completed_count} / {completeness.required_count}",
                 missing_materials or "材料完整",
-                ITEM_STATUS_LABELS.get(str(item.status), str(item.status)),
+                ITEM_STATUS_LABELS.get(item_status, item_status),
             )
             for column, value in enumerate(values):
                 if column == 7:
@@ -1570,15 +1663,59 @@ class MainWindow(QMainWindow):
                     table_item.setTextAlignment(
                         Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
                     )
+                elif column == 5:
+                    table_item.setTextAlignment(
+                        Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
+                    )
+                if column == 6:
+                    table_item.setToolTip(value)
+                    if completeness.is_complete:
+                        table_item.setForeground(
+                            QColor(IOS_LIGHT_TOKENS.success_text)
+                        )
+                    else:
+                        table_item.setForeground(
+                            QColor(IOS_LIGHT_TOKENS.warning_text)
+                        )
                 self.all_items_table.setItem(row, column, table_item)
             status_badge = QLabel(values[7])
             status_badge.setObjectName("allItemsWorkflowBadge")
-            status_badge.setProperty("status", str(item.status))
+            status_badge.setProperty("status", item_status)
             status_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.all_items_table.setCellWidget(row, 7, status_badge)
         self._set_all_items_empty_state(
             is_search_result=bool(query.strip())
             and self.all_items_table.rowCount() == 0
+        )
+
+    def _display_item_status(
+        self,
+        item_id: int,
+        status: ReimbursementStatus,
+        *,
+        collection_complete: bool | None = None,
+    ) -> str:
+        """Return the status label for one Item without persisting it.
+
+        Readiness is derived from the Item's own submission package, so it is
+        only computed while the Item is still collecting materials.
+        """
+        if status is not ReimbursementStatus.COLLECTING:
+            return display_status(status, submission_ready=False)
+        if collection_complete is None:
+            collection_complete = (
+                self._completeness_service.calculate(item_id).is_complete
+                if self._completeness_service is not None
+                else None
+            )
+        submission_ready = (
+            self._submission_readiness_service is not None
+            and self._submission_readiness_service.calculate(item_id).is_ready
+        )
+        return display_status(
+            status,
+            submission_ready=submission_ready,
+            collection_complete=collection_complete,
         )
 
     def _set_all_items_empty_state(self, *, is_search_result: bool) -> None:
@@ -1591,11 +1728,13 @@ class MainWindow(QMainWindow):
         if is_search_result:
             self.all_items_empty_title.setText("没有找到匹配的物品")
             self.all_items_empty_description.setText("尝试使用其他关键词。")
+            self.all_items_clear_search_button.setVisible(True)
             return
         self.all_items_empty_title.setText("暂无报销物品")
         self.all_items_empty_description.setText(
             "创建报销批次并添加物品后，它们会出现在这里。"
         )
+        self.all_items_clear_search_button.setVisible(False)
 
     def _build_batch_list_page(self) -> QWidget:
         page = QWidget()
@@ -1634,13 +1773,13 @@ class MainWindow(QMainWindow):
             ("批次名称", "创建日期", "物品数量", "总金额", "状态")
         )
         self.batch_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.batch_table.setSelectionBehavior(
-            QTableWidget.SelectionBehavior.SelectRows
+        self.batch_table.setSelectionMode(
+            QTableWidget.SelectionMode.NoSelection
         )
+        self.batch_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.batch_table.setAlternatingRowColors(True)
         self.batch_table.setShowGrid(False)
         self.batch_table.verticalHeader().setVisible(False)
-        self.batch_table.horizontalHeader().setVisible(False)
         self.batch_table.verticalHeader().setDefaultSectionSize(52)
         self.batch_table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch
@@ -1649,7 +1788,10 @@ class MainWindow(QMainWindow):
             self.batch_table.horizontalHeader().setSectionResizeMode(
                 column, QHeaderView.ResizeMode.ResizeToContents
             )
-        self.batch_table.cellDoubleClicked.connect(self._open_batch_detail)
+        self._make_table_rows_clickable(self.batch_table, self._open_batch_detail)
+        self._align_table_headers(
+            self.batch_table, right=(2, 3), center=(4,)
+        )
         surface_layout.addWidget(self.batch_table)
         layout.addWidget(self.batch_list_surface, 1)
 
@@ -1696,6 +1838,7 @@ class MainWindow(QMainWindow):
 
         self.back_to_all_items_button = QPushButton("← 所有物品")
         self.back_to_all_items_button.setObjectName("itemDetailBackButton")
+        self.back_to_all_items_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.back_to_all_items_button.clicked.connect(self._show_item_detail_return_page)
         layout.addWidget(self.back_to_all_items_button, 0, Qt.AlignmentFlag.AlignLeft)
 
@@ -1729,9 +1872,14 @@ class MainWindow(QMainWindow):
         self.item_detail_order_number_label.setObjectName("itemDetailMetadataSecondary")
         self.item_detail_batch_label.setObjectName("itemDetailMetadataSecondary")
         details.addWidget(self.item_detail_primary_metadata_label)
-        details.addWidget(self.item_detail_merchant_label)
-        details.addWidget(self.item_detail_order_number_label)
-        details.addWidget(self.item_detail_batch_label)
+        metadata_row = QHBoxLayout()
+        metadata_row.setContentsMargins(0, 0, 0, 0)
+        metadata_row.setSpacing(16)
+        metadata_row.addWidget(self.item_detail_merchant_label)
+        metadata_row.addWidget(self.item_detail_order_number_label)
+        metadata_row.addWidget(self.item_detail_batch_label)
+        metadata_row.addStretch()
+        details.addLayout(metadata_row)
         layout.addWidget(details_frame)
 
         workflow_card = QFrame()
@@ -1739,17 +1887,15 @@ class MainWindow(QMainWindow):
         workflow_layout = QHBoxLayout(workflow_card)
         workflow_layout.setContentsMargins(16, 14, 16, 14)
         workflow_layout.setSpacing(12)
-        workflow_summary = QVBoxLayout()
-        workflow_summary.setSpacing(6)
         workflow_title = QLabel("报销状态")
         workflow_title.setObjectName("itemDetailStatusTitle")
-        workflow_summary.addWidget(workflow_title)
+        workflow_layout.addWidget(workflow_title)
         self.item_detail_status_label = QLabel()
         self.item_detail_status_label.setObjectName("itemDetailWorkflowBadge")
-        workflow_summary.addWidget(
-            self.item_detail_status_label, 0, Qt.AlignmentFlag.AlignLeft
+        workflow_layout.addWidget(
+            self.item_detail_status_label, 0, Qt.AlignmentFlag.AlignVCenter
         )
-        workflow_layout.addLayout(workflow_summary, 1)
+        workflow_layout.addStretch()
         self.item_detail_workflow_button = QPushButton()
         self.item_detail_workflow_button.setObjectName("primaryButton")
         self.item_detail_workflow_button.clicked.connect(
@@ -1776,8 +1922,17 @@ class MainWindow(QMainWindow):
         self.item_detail_collection_count_label.setObjectName("itemDetailStatusValue")
         self.item_detail_collection_percentage_label = QLabel()
         self.item_detail_collection_percentage_label.setObjectName("itemDetailStatusText")
-        collection_layout.addWidget(self.item_detail_collection_count_label)
-        collection_layout.addWidget(self.item_detail_collection_percentage_label)
+        collection_metrics = QHBoxLayout()
+        collection_metrics.setContentsMargins(0, 0, 0, 0)
+        collection_metrics.setSpacing(8)
+        collection_metrics.addWidget(self.item_detail_collection_count_label)
+        collection_metrics.addStretch()
+        collection_metrics.addWidget(
+            self.item_detail_collection_percentage_label,
+            0,
+            Qt.AlignmentFlag.AlignBottom,
+        )
+        collection_layout.addLayout(collection_metrics)
         collection_layout.addWidget(self.item_detail_completeness_label)
         self.item_detail_collection_progress = QProgressBar()
         self.item_detail_collection_progress.setObjectName("itemDetailProgress")
@@ -1811,6 +1966,10 @@ class MainWindow(QMainWindow):
         submission_layout.addWidget(
             self.export_submission_materials_button, 0, Qt.AlignmentFlag.AlignLeft
         )
+        self.export_submission_hint_label = QLabel()
+        self.export_submission_hint_label.setObjectName("actionHint")
+        self.export_submission_hint_label.setWordWrap(True)
+        submission_layout.addWidget(self.export_submission_hint_label)
         status_layout.addWidget(submission_card, 1)
         layout.addLayout(status_layout)
 
@@ -1874,6 +2033,11 @@ class MainWindow(QMainWindow):
             return
         item = self._item_service.get_item(item_id)
         completeness = self._completeness_service.calculate(item_id)
+        submission = (
+            self._submission_readiness_service.calculate(item_id)
+            if self._submission_readiness_service is not None
+            else None
+        )
         attachments_by_material: dict[int, list[Attachment]] = {}
         if self._attachment_service is not None:
             for attachment in self._attachment_service.list_attachments(item_id):
@@ -1892,10 +2056,15 @@ class MainWindow(QMainWindow):
         self.item_detail_merchant_label.setText(item.merchant or "\u2014")
         self.item_detail_order_number_label.setText(item.order_number or "\u2014")
         self.item_detail_batch_label.setText(item.batch.name)
-        self.item_detail_status_label.setText(
-            ITEM_STATUS_LABELS.get(str(item.status), str(item.status))
+        item_status = display_status(
+            item.status,
+            submission_ready=submission is not None and submission.is_ready,
+            collection_complete=completeness.is_complete,
         )
-        self.item_detail_status_label.setProperty("status", str(item.status))
+        self.item_detail_status_label.setText(
+            ITEM_STATUS_LABELS.get(item_status, item_status)
+        )
+        self.item_detail_status_label.setProperty("status", item_status)
         self._refresh_dynamic_style(self.item_detail_status_label)
         metadata_parts = [
             value
@@ -1918,18 +2087,6 @@ class MainWindow(QMainWindow):
             label.setText(f"{title}：{value}" if value else "")
             label.setVisible(bool(value))
         self._update_item_workflow_action(item.status)
-        if completeness.is_complete:
-            completeness_text = (
-                f"\u6750\u6599\u5b8c\u6574\u5ea6\uff1a{completeness.completed_count} / "
-                f"{completeness.required_count}\n{completeness.percentage}%\n\u6750\u6599\u5b8c\u6574"
-            )
-        else:
-            missing = "\u3001".join(material.name for material in completeness.missing)
-            completeness_text = (
-                f"\u6750\u6599\u5b8c\u6574\u5ea6\uff1a{completeness.completed_count} / "
-                f"{completeness.required_count}\n{completeness.percentage}%\n\u7f3a\u5c11\uff1a{missing}"
-            )
-        self.item_detail_completeness_label.setText(completeness_text)
         self.item_detail_collection_count_label.setText(
             f"{completeness.completed_count} / {completeness.required_count}"
         )
@@ -1947,27 +2104,13 @@ class MainWindow(QMainWindow):
             "semantic", "success" if completeness.is_complete else "accent"
         )
         self._refresh_dynamic_style(self.item_detail_collection_progress)
-        if self._submission_readiness_service is not None:
-            submission = self._submission_readiness_service.calculate(item_id)
-            if submission.is_ready:
-                submission_text = (
-                    f"\u63d0\u4ea4\u6750\u6599\uff1a{submission.completed_count} / "
-                    f"{submission.required_count} \u2705\n\u53ef\u63d0\u4ea4"
-                )
-            else:
-                missing = "\u3001".join(material.name for material in submission.missing)
-                submission_text = (
-                    f"\u63d0\u4ea4\u6750\u6599\uff1a{submission.completed_count} / "
-                    f"{submission.required_count}\n\u7f3a\uff1a{missing}"
-                )
-            self.item_detail_submission_readiness_label.setText(submission_text)
+        if submission is not None:
+            missing = "、".join(material.name for material in submission.missing)
             self.item_detail_submission_count_label.setText(
                 f"{submission.completed_count} / {submission.required_count}"
             )
             self.item_detail_submission_readiness_label.setText(
-                "可提交"
-                if submission.is_ready
-                else f"缺少：{'、'.join(material.name for material in submission.missing)}"
+                "可提交" if submission.is_ready else f"缺少：{missing}"
             )
             submission_percentage = (
                 round(submission.completed_count * 100 / submission.required_count)
@@ -1986,6 +2129,22 @@ class MainWindow(QMainWindow):
             self.export_submission_materials_button.setToolTip(
                 "" if submission.is_ready else f"提交材料未完整，缺少：{missing}"
             )
+            self.export_submission_hint_label.setText(
+                "" if submission.is_ready else "提交材料不齐全时不能导出。"
+            )
+            self.item_detail_workflow_button.setProperty(
+                "quiet",
+                "true"
+                if item.status is ReimbursementStatus.COLLECTING
+                and not submission.is_ready
+                else "false",
+            )
+            self.item_detail_workflow_button.setToolTip(
+                ""
+                if submission.is_ready
+                else "提交材料尚未齐全，点击后会先确认再提交。"
+            )
+            self._refresh_dynamic_style(self.item_detail_workflow_button)
         else:
             self.item_detail_submission_count_label.clear()
             self.item_detail_submission_readiness_label.clear()
@@ -1995,6 +2154,9 @@ class MainWindow(QMainWindow):
             self._refresh_dynamic_style(self.item_detail_submission_progress)
             self.export_submission_materials_button.setEnabled(False)
             self.export_submission_materials_button.setToolTip("提交材料状态当前不可用。")
+            self.export_submission_hint_label.setText("提交材料状态当前不可用。")
+            self.item_detail_workflow_button.setProperty("quiet", "false")
+            self._refresh_dynamic_style(self.item_detail_workflow_button)
         self._current_item_detail_id = item_id
 
         self._clear_layout(self.item_detail_materials_layout)
@@ -2104,7 +2266,7 @@ class MainWindow(QMainWindow):
         if latest_result is None:
             empty = QLabel("尚未生成最终支付截图")
             empty.setObjectName("mergedPaymentEmpty")
-            result_layout.addWidget(empty)
+            result_layout.addWidget(empty, 0, Qt.AlignmentFlag.AlignLeft)
         else:
             result_layout.addWidget(self._build_attachment_card(latest_result))
         self.merged_payment_section_layout.addWidget(result)
@@ -2132,6 +2294,17 @@ class MainWindow(QMainWindow):
             0,
             Qt.AlignmentFlag.AlignLeft,
         )
+        merge_hint = ""
+        if order_attachment is None and payment_attachment is None:
+            merge_hint = "先上传订单截图与支付截图。"
+        elif order_attachment is None:
+            merge_hint = "还缺订单截图。"
+        elif payment_attachment is None:
+            merge_hint = "还缺支付截图。"
+        if merge_hint:
+            self.merged_payment_hint_label = QLabel(merge_hint)
+            self.merged_payment_hint_label.setObjectName("actionHint")
+            self.merged_payment_section_layout.addWidget(self.merged_payment_hint_label)
 
     @staticmethod
     def _clear_layout(layout: QLayout) -> None:
@@ -2186,12 +2359,12 @@ class MainWindow(QMainWindow):
         elif not any(not attachment.is_derived for attachment in attachments):
             missing = QLabel(f"缺少{title}")
             missing.setObjectName("mergedPaymentSourceMissing")
-            layout.addWidget(missing)
+            layout.addWidget(missing, 0, Qt.AlignmentFlag.AlignLeft)
         else:
             unsupported = QLabel("当前附件不是可直接合并的图片")
             unsupported.setObjectName("mergedPaymentSourceUnsupported")
             unsupported.setWordWrap(True)
-            layout.addWidget(unsupported)
+            layout.addWidget(unsupported, 0, Qt.AlignmentFlag.AlignLeft)
             latest_attachment = next(
                 (attachment for attachment in reversed(attachments) if not attachment.is_derived),
                 None,
@@ -2262,14 +2435,14 @@ class MainWindow(QMainWindow):
             empty_state.setObjectName(
                 "materialMissingState" if is_missing else "materialOptionalState"
             )
-            layout.addWidget(empty_state)
-
-        drop_hint = QLabel("可拖动一个或多个文件到此区域")
-        drop_hint.setObjectName("materialDropHint")
-        layout.addWidget(drop_hint)
+            layout.addWidget(empty_state, 0, Qt.AlignmentFlag.AlignLeft)
+            drop_hint = QLabel("可拖动一个或多个文件到此区域")
+            drop_hint.setObjectName("materialDropHint")
+            layout.addWidget(drop_hint)
 
         add_attachment_button = QPushButton("+ 添加附件")
         add_attachment_button.setObjectName("itemDetailAddAttachmentButton")
+        add_attachment_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         add_attachment_button.clicked.connect(
             lambda _checked=False: self._select_and_add_attachment(
                 item_id, material_type_id
@@ -2325,12 +2498,16 @@ class MainWindow(QMainWindow):
                 file_label.setObjectName("attachmentFileBadge")
                 layout.addWidget(file_label, 0, Qt.AlignmentFlag.AlignLeft)
 
-        filename_label = QLabel(display_name)
+        filename_label = QLabel()
         filename_label.setObjectName("attachmentFilename")
         filename_label.setWordWrap(False)
+        filename_font = QFont()
+        filename_font.setPixelSize(IOS_LIGHT_TOKENS.body_size)
+        filename_font.setWeight(QFont.Weight.DemiBold)
+        filename_label.setFixedWidth(200)
         filename_label.setText(
-            QFontMetrics(filename_label.font()).elidedText(
-                display_name, Qt.TextElideMode.ElideRight, 196
+            QFontMetrics(filename_font).elidedText(
+                display_name, Qt.TextElideMode.ElideMiddle, 196
             )
         )
         filename_label.setToolTip(display_name)
@@ -2395,18 +2572,22 @@ class MainWindow(QMainWindow):
         layout.setSpacing(8)
         open_button = QPushButton("\u6253\u5f00")
         open_button.setObjectName("attachmentTextAction")
+        open_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         open_button.clicked.connect(
             lambda _checked=False: self._open_attachment(attachment_id)
         )
         layout.addWidget(open_button)
-        open_folder_button = QPushButton("\u6253\u5f00\u6240\u5728\u6587\u4ef6\u5939")
+        open_folder_button = QPushButton("\u6587\u4ef6\u5939")
         open_folder_button.setObjectName("attachmentTextAction")
+        open_folder_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        open_folder_button.setToolTip("\u6253\u5f00\u6240\u5728\u6587\u4ef6\u5939")
         open_folder_button.clicked.connect(
             lambda _checked=False: self._open_attachment_folder(attachment_id)
         )
         layout.addWidget(open_folder_button)
         remove_button = QPushButton("\u5220\u9664")
         remove_button.setObjectName("attachmentDangerAction")
+        remove_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         remove_button.clicked.connect(
             lambda _checked=False: self._remove_attachment(attachment_id)
         )
@@ -2449,7 +2630,7 @@ class MainWindow(QMainWindow):
         confirmed = QMessageBox.question(
             self,
             "删除附件",
-            "确定删除这个附件吗？",
+            "删除后附件会移入应用回收目录，不会直接永久删除。\n\n仍要删除吗？",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -2481,11 +2662,11 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "无法删除物品", "无法读取物品附件，请刷新后重试。")
                 return
 
-        message = "确定删除这个物品吗？"
+        message = "删除后物品会从当前批次移除。\n\n仍要删除这个物品吗？"
         if attachment_count:
             message = (
                 f"该物品包含 {attachment_count} 个附件。删除后附件将移动到应用回收目录，"
-                "不会直接永久删除。\n\n确定删除这个物品吗？"
+                "不会直接永久删除。\n\n仍要删除这个物品吗？"
             )
         confirmed = QMessageBox.question(
             self,
@@ -2508,6 +2689,44 @@ class MainWindow(QMainWindow):
         self.refresh_batch_list()
         self._refresh_current_batch_detail()
         self._show_all_items()
+
+    @staticmethod
+    def _make_table_rows_clickable(
+        table: QTableWidget, handler: Callable[[int, int], None]
+    ) -> None:
+        """Open a row on a single click and advertise it with a pointer cursor.
+
+        Double-click stays wired for people who expect it; because the handler
+        switches pages, the second click lands on the newly shown page instead
+        of reopening the same row.
+        """
+        table.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
+        table.cellClicked.connect(handler)
+        table.cellDoubleClicked.connect(handler)
+
+    @staticmethod
+    def _align_table_headers(
+        table: QTableWidget,
+        *,
+        right: tuple[int, ...] = (),
+        center: tuple[int, ...] = (),
+    ) -> None:
+        """Keep header labels aligned with the cells they describe."""
+        vertical = Qt.AlignmentFlag.AlignVCenter
+        table.horizontalHeader().setDefaultAlignment(
+            Qt.AlignmentFlag.AlignLeft | vertical
+        )
+        for column in range(table.columnCount()):
+            header_item = table.horizontalHeaderItem(column)
+            if header_item is None:
+                continue
+            if column in right:
+                alignment = Qt.AlignmentFlag.AlignRight | vertical
+            elif column in center:
+                alignment = Qt.AlignmentFlag.AlignCenter | vertical
+            else:
+                alignment = Qt.AlignmentFlag.AlignLeft | vertical
+            header_item.setTextAlignment(alignment)
 
     @staticmethod
     def _refresh_dynamic_style(widget: QWidget) -> None:
@@ -2826,9 +3045,10 @@ class MainWindow(QMainWindow):
         self.batch_detail_table.setEditTriggers(
             QTableWidget.EditTrigger.NoEditTriggers
         )
-        self.batch_detail_table.setSelectionBehavior(
-            QTableWidget.SelectionBehavior.SelectRows
+        self.batch_detail_table.setSelectionMode(
+            QTableWidget.SelectionMode.NoSelection
         )
+        self.batch_detail_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.batch_detail_table.setAlternatingRowColors(True)
         self.batch_detail_table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.batch_detail_table, 1)
@@ -2843,6 +3063,7 @@ class MainWindow(QMainWindow):
 
         self.back_to_batch_list_button = QPushButton("\u2190 \u62a5\u9500\u6279\u6b21")
         self.back_to_batch_list_button.setObjectName("batchDetailBackButton")
+        self.back_to_batch_list_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.back_to_batch_list_button.clicked.connect(self._show_batch_list)
         layout.addWidget(self.back_to_batch_list_button, 0, Qt.AlignmentFlag.AlignLeft)
 
@@ -2897,6 +3118,17 @@ class MainWindow(QMainWindow):
         self.batch_detail_overview_amount_label.setObjectName("batchDetailMetricValue")
         overview_amount.addWidget(self.batch_detail_overview_amount_label)
         overview_layout.addLayout(overview_amount)
+        overview_materials = QVBoxLayout()
+        overview_materials.setSpacing(2)
+        overview_materials_title = QLabel("材料完整度")
+        overview_materials_title.setObjectName("batchDetailMetricTitle")
+        overview_materials.addWidget(overview_materials_title)
+        self.batch_detail_overview_materials_label = QLabel()
+        self.batch_detail_overview_materials_label.setObjectName(
+            "batchDetailMetricValue"
+        )
+        overview_materials.addWidget(self.batch_detail_overview_materials_label)
+        overview_layout.addLayout(overview_materials)
         overview_layout.addStretch()
         layout.addWidget(overview)
 
@@ -2907,9 +3139,16 @@ class MainWindow(QMainWindow):
         workflow_layout.setSpacing(16)
         workflow_information = QVBoxLayout()
         workflow_information.setSpacing(4)
+        workflow_heading = QHBoxLayout()
+        workflow_heading.setSpacing(8)
         workflow_title = QLabel("报销状态")
         workflow_title.setObjectName("sectionTitle")
-        workflow_information.addWidget(workflow_title)
+        workflow_heading.addWidget(workflow_title)
+        self.batch_detail_status_badge = QLabel()
+        self.batch_detail_status_badge.setObjectName("batchDetailWorkflowBadge")
+        workflow_heading.addWidget(self.batch_detail_status_badge)
+        workflow_heading.addStretch()
+        workflow_information.addLayout(workflow_heading)
         self.batch_detail_workflow_summary_label = QLabel()
         self.batch_detail_workflow_summary_label.setObjectName("batchDetailWorkflowSummary")
         workflow_information.addWidget(self.batch_detail_workflow_summary_label)
@@ -2922,6 +3161,9 @@ class MainWindow(QMainWindow):
         self.batch_mark_reimbursed_button = QPushButton("标记批次已报销")
         self.batch_mark_reimbursed_button.clicked.connect(self._mark_batch_reimbursed)
         workflow_layout.addWidget(self.batch_mark_reimbursed_button)
+        self.batch_workflow_hint_label = QLabel()
+        self.batch_workflow_hint_label.setObjectName("actionHint")
+        workflow_layout.addWidget(self.batch_workflow_hint_label)
         layout.addWidget(workflow)
 
         items_title = QLabel("\u7269\u54c1")
@@ -2940,21 +3182,27 @@ class MainWindow(QMainWindow):
         self.batch_detail_table.setEditTriggers(
             QTableWidget.EditTrigger.NoEditTriggers
         )
-        self.batch_detail_table.setSelectionBehavior(
-            QTableWidget.SelectionBehavior.SelectRows
+        self.batch_detail_table.setSelectionMode(
+            QTableWidget.SelectionMode.NoSelection
         )
+        self.batch_detail_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.batch_detail_table.setAlternatingRowColors(True)
         self.batch_detail_table.setShowGrid(False)
         self.batch_detail_table.verticalHeader().setVisible(False)
         self.batch_detail_table.verticalHeader().setDefaultSectionSize(52)
         header_view = self.batch_detail_table.horizontalHeader()
         header_view.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for column in (1, 2, 3, 4):
+        for column in (1, 2, 3):
             header_view.setSectionResizeMode(
                 column, QHeaderView.ResizeMode.ResizeToContents
             )
-        self.batch_detail_table.cellDoubleClicked.connect(
-            self._open_batch_detail_item
+        header_view.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        self.batch_detail_table.setColumnWidth(4, 96)
+        self._make_table_rows_clickable(
+            self.batch_detail_table, self._open_batch_detail_item
+        )
+        self._align_table_headers(
+            self.batch_detail_table, right=(1,), center=(2, 4)
         )
         item_list_layout.addWidget(self.batch_detail_table)
         layout.addWidget(self.batch_detail_list_surface, 1)
@@ -2984,7 +3232,11 @@ class MainWindow(QMainWindow):
         danger_area = QFrame()
         danger_area.setObjectName("batchDetailDangerArea")
         danger_layout = QHBoxLayout(danger_area)
-        danger_layout.setContentsMargins(0, 8, 0, 0)
+        danger_layout.setContentsMargins(16, 12, 16, 12)
+        danger_layout.setSpacing(12)
+        danger_hint = QLabel("仅可删除没有物品的批次")
+        danger_hint.setObjectName("settingsRowDetail")
+        danger_layout.addWidget(danger_hint)
         danger_layout.addStretch()
         self.delete_batch_button = QPushButton("删除批次")
         self.delete_batch_button.setObjectName("dangerButton")
@@ -3053,12 +3305,20 @@ class MainWindow(QMainWindow):
             self._format_cents(entry.total_amount_cents)
         )
         workflow_counts = {status: 0 for status in ITEM_STATUS_LABELS}
+        item_statuses: list[ReimbursementStatus] = []
+        completed_materials = 0
+        required_materials = 0
         if self._item_service is not None and self._completeness_service is not None:
             for item in self._item_service.list_items_by_batch(entry.id):
-                item_status = str(item.status)
+                item_statuses.append(item.status)
+                completeness = self._completeness_service.calculate(item.id)
+                completed_materials += completeness.completed_count
+                required_materials += completeness.required_count
+                item_status = self._display_item_status(
+                    item.id, item.status, collection_complete=completeness.is_complete
+                )
                 if item_status in workflow_counts:
                     workflow_counts[item_status] += 1
-                completeness = self._completeness_service.calculate(item.id)
                 missing_materials = "\u3001".join(
                     material.name for material in completeness.missing
                 )
@@ -3088,8 +3348,12 @@ class MainWindow(QMainWindow):
                             Qt.AlignmentFlag.AlignCenter
                             | Qt.AlignmentFlag.AlignVCenter
                         )
-                    if column == 3 and missing_materials:
-                        table_item.setForeground(QColor(IOS_LIGHT_TOKENS.warning_text))
+                    if column == 3:
+                        table_item.setToolTip(value)
+                        if missing_materials:
+                            table_item.setForeground(
+                                QColor(IOS_LIGHT_TOKENS.warning_text)
+                            )
                     self.batch_detail_table.setItem(row, column, table_item)
                 status_badge = QLabel(ITEM_STATUS_LABELS.get(item_status, item_status))
                 status_badge.setObjectName("batchDetailWorkflowBadge")
@@ -3105,16 +3369,63 @@ class MainWindow(QMainWindow):
             )
             or "暂无物品"
         )
+        self.batch_detail_overview_materials_label.setText(
+            f"{completed_materials} / {required_materials}"
+            if required_materials
+            else "—"
+        )
 
         has_items = self.batch_detail_table.rowCount() > 0
-        self.batch_mark_submitted_button.setEnabled(
-            has_items and self._workflow_service is not None
-        )
-        self.batch_mark_reimbursed_button.setEnabled(
-            has_items and self._workflow_service is not None
-        )
+        self._update_batch_workflow_actions(item_statuses)
+        self._update_batch_status_badge(entry.id)
         self.batch_detail_list_surface.setVisible(has_items)
         self.batch_detail_empty_state.setVisible(not has_items)
+
+    def _update_batch_status_badge(self, batch_id: int) -> None:
+        """Show the persisted batch state next to the workflow heading."""
+        status_label = ""
+        raw_status = ""
+        if self._batch_service is not None:
+            for batch in self._batch_service.list_batches():
+                if batch.id == batch_id:
+                    raw_status = str(batch.status)
+                    status_label = BATCH_STATUS_LABELS.get(raw_status, raw_status)
+                    break
+        self.batch_detail_status_badge.setText(status_label)
+        self.batch_detail_status_badge.setProperty("status", raw_status)
+        self.batch_detail_status_badge.setVisible(bool(status_label))
+        self._refresh_dynamic_style(self.batch_detail_status_badge)
+
+    def _update_batch_workflow_actions(
+        self, statuses: list[ReimbursementStatus]
+    ) -> None:
+        """Offer only the one workflow step that is valid for every item."""
+        service_ready = self._workflow_service is not None
+        can_submit = bool(statuses) and all(
+            status is ReimbursementStatus.COLLECTING for status in statuses
+        )
+        can_reimburse = bool(statuses) and all(
+            status is ReimbursementStatus.SUBMITTED for status in statuses
+        )
+        self.batch_mark_submitted_button.setVisible(can_submit)
+        self.batch_mark_submitted_button.setEnabled(can_submit and service_ready)
+        self.batch_mark_reimbursed_button.setVisible(can_reimburse)
+        self.batch_mark_reimbursed_button.setEnabled(can_reimburse and service_ready)
+        self.batch_workflow_hint_label.setText(
+            self._batch_workflow_hint(statuses, can_submit, can_reimburse)
+        )
+
+    @staticmethod
+    def _batch_workflow_hint(
+        statuses: list[ReimbursementStatus], can_submit: bool, can_reimburse: bool
+    ) -> str:
+        if not statuses or can_submit or can_reimburse:
+            return ""
+        if all(status is ReimbursementStatus.REIMBURSED for status in statuses):
+            return "本批次已全部报销。"
+        if all(status is ReimbursementStatus.ARCHIVED for status in statuses):
+            return "本批次已归档。"
+        return "物品状态不一致，请在物品详情里逐个推进。"
 
     def _open_batch_detail_item(self, row: int, _column: int) -> None:
         self._open_item_detail_from_table(
@@ -3344,12 +3655,9 @@ class MainWindow(QMainWindow):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         try:
-            existing_items = self._item_service.list_items_by_batch(
+            sequence_number = self._item_service.allocate_sequence(
                 self._current_batch_entry.id
             )
-            sequence_number = max(
-                (item.sequence_number for item in existing_items), default=0
-            ) + 1
             self._item_service.create_item(
                 batch_id=self._current_batch_entry.id,
                 template_id=dialog.template_id(),
@@ -3415,18 +3723,21 @@ class MainWindow(QMainWindow):
         page.setObjectName("dashboardPage")
         layout = QVBoxLayout(page)
         layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(16)
+        layout.setSpacing(20)
 
-        title = QLabel("\u62a5\u9500\u5f52\u6863")
+        title_group = QVBoxLayout()
+        title_group.setSpacing(4)
+        title = QLabel("\u6982\u89c8")
         title.setObjectName("pageTitle")
-        layout.addWidget(title)
+        title_group.addWidget(title)
 
-        subtitle = QLabel("\u7ba1\u7406\u4f60\u7684\u62a5\u9500\u6750\u6599\u4e0e\u63d0\u4ea4\u8fdb\u5ea6")
+        subtitle = QLabel("\u4eca\u5929\u9700\u8981\u5904\u7406\u7684\u62a5\u9500\u6750\u6599")
         subtitle.setObjectName("dashboardPageSubtitle")
-        layout.addWidget(subtitle)
+        title_group.addWidget(subtitle)
+        layout.addLayout(title_group)
 
         summary_layout = DashboardStatsGrid()
-        summary_layout.setMinimumHeight(118)
+        summary_layout.setMinimumHeight(104)
         self.dashboard_stats_grid = summary_layout
         summary_values = (
             ("\u5f85\u5904\u7406", self._dashboard_data.incomplete_count),
@@ -3552,16 +3863,29 @@ class MainWindow(QMainWindow):
         identity_layout.setSpacing(8)
         item_identity = QVBoxLayout()
         item_identity.setSpacing(2)
+        name_row = QHBoxLayout()
+        name_row.setSpacing(8)
         name = QLabel(dashboard_item.name)
         name.setObjectName("dashboardItemName")
+        name_row.addWidget(name)
+        state_chip = QLabel(
+            "\u5f85\u8865\u6750\u6599"
+            if dashboard_item.status_key == "incomplete"
+            else "\u5f85\u751f\u6210\u51ed\u8bc1"
+        )
+        state_chip.setObjectName("dashboardStateChip")
+        state_chip.setProperty("status", dashboard_item.status_key)
+        name_row.addWidget(state_chip)
+        name_row.addStretch()
         batch = QLabel(self._dashboard_batch_name(dashboard_item.item_id))
         batch.setObjectName("dashboardItemBatch")
-        item_identity.addWidget(name)
+        item_identity.addLayout(name_row)
         item_identity.addWidget(batch)
         identity_layout.addLayout(item_identity)
         identity_layout.addStretch()
         detail_button = QPushButton("\u67e5\u770b  \u203a")
         detail_button.setObjectName("dashboardItemDetailButton")
+        detail_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         detail_button.setEnabled(
             self._item_service is not None and self._completeness_service is not None
         )
@@ -3597,10 +3921,14 @@ class MainWindow(QMainWindow):
                 1,
             )
         item_layout.addLayout(progress_layout)
-
-        missing = QLabel(f"\u7f3a\u5c11\uff1a{'\u3001'.join(dashboard_item.missing_materials)}")
+        missing = QLabel(
+            f"\u7f3a\u5c11\uff1a{'\u3001'.join(dashboard_item.missing_materials)}"
+            if dashboard_item.missing_materials
+            else "\u6750\u6599\u5df2\u9f50\uff0c\u53ef\u63d0\u4ea4"
+        )
         missing.setObjectName("dashboardMissing")
-        missing.setWordWrap(True)
+        missing.setWordWrap(False)
+        missing.setToolTip(missing.text())
         item_layout.addWidget(missing)
         return row
 
@@ -3624,6 +3952,12 @@ class MainWindow(QMainWindow):
         progress.setTextVisible(False)
         progress.setRange(0, max(required_count, 1))
         progress.setValue(completed_count)
+        progress.setProperty(
+            "semantic",
+            "success"
+            if required_count > 0 and completed_count >= required_count
+            else "accent",
+        )
         progress_layout.addLayout(label_layout)
         progress_layout.addWidget(progress)
         return progress_layout
