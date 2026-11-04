@@ -93,6 +93,7 @@ from reimbursement_manager.services.legacy_database_migration_service import (
     LegacyDatabaseMigrationStatus,
 )
 from reimbursement_manager.services.template_service import (
+    MaterialTypeNameAlreadyExistsError,
     MaterialTypeNotFoundError,
     TemplateMaterialAlreadyExistsError,
     TemplateMaterialNotFoundError,
@@ -152,6 +153,7 @@ __all__ = [
     "ImageMergeService",
     "IncompleteDashboardItem",
     "MaterialRequirementNotFoundError",
+    "MaterialTypeNameAlreadyExistsError",
     "MissingMaterial",
     "MaterialTypeNotFoundError",
     "MergeAvailability",

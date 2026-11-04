@@ -9,6 +9,9 @@ from reimbursement_manager.database import (
 )
 from reimbursement_manager.database.models import Base, Template, TemplateMaterial
 from reimbursement_manager.services import (
+    BatchService,
+    ItemService,
+    MaterialTypeNameAlreadyExistsError,
     MaterialTypeNotFoundError,
     TemplateMaterialAlreadyExistsError,
     TemplateMaterialNotFoundError,
@@ -151,3 +154,72 @@ def test_default_initializer_preserves_user_template_changes(
         ("payment_screenshot", True),
         ("invoice", False),
     ]
+
+
+def test_create_material_type_generates_unique_ascii_codes(
+    service: TemplateService,
+) -> None:
+    first = service.create_material_type("验收单", "设备到货验收")
+    second = service.create_material_type("保修卡")
+    ascii_named = service.create_material_type("Warranty Card")
+
+    assert first.name == "验收单"
+    assert first.description == "设备到货验收"
+    assert first.code == "custom"
+    assert second.code == "custom_2"
+    assert ascii_named.code == "custom_warranty_card"
+    assert len({first.code, second.code, ascii_named.code}) == 3
+
+    codes = {value.code for value in service.list_material_types()}
+    assert {"custom", "custom_2", "custom_warranty_card"} <= codes
+
+
+def test_create_material_type_rejects_blank_duplicate_and_overlong_names(
+    service: TemplateService,
+) -> None:
+    service.create_material_type("验收单")
+
+    with pytest.raises(ValueError, match="不能为空"):
+        service.create_material_type("   ")
+    with pytest.raises(MaterialTypeNameAlreadyExistsError):
+        service.create_material_type("验收单")
+    with pytest.raises(ValueError, match="不能超过"):
+        service.create_material_type("超" * 101)
+
+
+def test_create_material_type_treats_ascii_names_case_insensitively(
+    service: TemplateService,
+) -> None:
+    service.create_material_type("Invoice Copy")
+
+    with pytest.raises(MaterialTypeNameAlreadyExistsError):
+        service.create_material_type("invoice copy")
+
+
+def test_custom_material_type_can_be_used_by_a_template_and_new_item(
+    database: DatabaseManager,
+) -> None:
+    service = TemplateService(database)
+    template = service.create_template("验收材料")
+    custom = service.create_material_type("验收单")
+    service.add_material(template.id, custom.code, required=True)
+
+    stored = service.get_template(template.id)
+    assert [
+        (value.material_type.code, value.material_type.name, value.required)
+        for value in stored.materials
+    ] == [(custom.code, "验收单", True)]
+
+    item_service = ItemService(database)
+    batch = BatchService(database).create_batch(name="验收批次")
+    item = item_service.create_item(
+        batch_id=batch.id,
+        template_id=template.id,
+        sequence_number=1,
+        name="待验收设备",
+    )
+
+    assert [
+        (requirement.material_type.code, requirement.material_type.name)
+        for requirement in item.requirements
+    ] == [(custom.code, "验收单")]

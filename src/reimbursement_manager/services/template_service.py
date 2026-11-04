@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from sqlalchemy.orm import Session
 
 from reimbursement_manager.database import (
@@ -25,6 +27,11 @@ DEFAULT_TEMPLATE_MATERIAL_CODES: tuple[str, ...] = (
     "invoice",
     "order_screenshot",
 )
+
+MATERIAL_TYPE_NAME_MAX_LENGTH = 100
+MATERIAL_TYPE_CODE_MAX_LENGTH = 64
+CUSTOM_MATERIAL_TYPE_CODE_BASE = "custom"
+_SLUG_PATTERN = re.compile(r"[^a-z0-9]+")
 
 
 class TemplateServiceError(Exception):
@@ -71,6 +78,14 @@ class TemplateNameAlreadyExistsError(TemplateServiceError, ValueError):
         self.name = name
 
 
+class MaterialTypeNameAlreadyExistsError(TemplateServiceError, ValueError):
+    """Raised when a custom material type reuses an existing display name."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(f"材料类型“{name}”已存在，请换一个名称。")
+        self.name = name
+
+
 class TemplateService:
     """Coordinate template use cases and their transaction boundaries."""
 
@@ -102,6 +117,45 @@ class TemplateService:
         """Return the existing material types available to template editors."""
         with self._database.transaction() as session:
             return MaterialTypeRepository(session).list()
+
+    def create_material_type(
+        self, name: str, description: str | None = None
+    ) -> MaterialType:
+        """Create a user-defined material type that every template can reuse.
+
+        The stable ``code`` is generated from the display name because the code
+        is an internal identifier: it must stay unique, ASCII-only, and must
+        never collide with the built-in material types.
+        """
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise ValueError("材料类型名称不能为空。")
+        if len(normalized_name) > MATERIAL_TYPE_NAME_MAX_LENGTH:
+            raise ValueError(
+                f"材料类型名称不能超过 {MATERIAL_TYPE_NAME_MAX_LENGTH} 个字符。"
+            )
+        normalized_description = self._normalize_optional_text(description)
+
+        with self._database.transaction() as session:
+            repository = MaterialTypeRepository(session)
+            existing_material_types = repository.list()
+            folded_name = normalized_name.casefold()
+            if any(
+                value.name.casefold() == folded_name
+                for value in existing_material_types
+            ):
+                raise MaterialTypeNameAlreadyExistsError(normalized_name)
+
+            code = self._generate_material_type_code(
+                existing_material_types, normalized_name
+            )
+            return repository.create(
+                MaterialType(
+                    code=code,
+                    name=normalized_name,
+                    description=normalized_description,
+                )
+            )
 
     def get_template(self, template_id: int) -> Template:
         with self._database.transaction() as session:
@@ -259,6 +313,32 @@ class TemplateService:
                 )
 
             return self._require_loaded_template(template_repository, template.id)
+
+    @staticmethod
+    def _generate_material_type_code(
+        existing_material_types: list[MaterialType],
+        name: str,
+    ) -> str:
+        """Derive a unique, ASCII-only code for one custom material type."""
+        slug = _SLUG_PATTERN.sub("_", name.strip().lower()).strip("_")
+        if slug:
+            prefix = f"{CUSTOM_MATERIAL_TYPE_CODE_BASE}_"
+            slug = slug[: MATERIAL_TYPE_CODE_MAX_LENGTH - len(prefix)]
+            base_code = f"{prefix}{slug}"
+        else:
+            base_code = CUSTOM_MATERIAL_TYPE_CODE_BASE
+
+        used_codes = {value.code for value in existing_material_types}
+        code = base_code
+        index = 2
+        while code in used_codes:
+            suffix = f"_{index}"
+            code = (
+                f"{base_code[: MATERIAL_TYPE_CODE_MAX_LENGTH - len(suffix)]}"
+                f"{suffix}"
+            )
+            index += 1
+        return code
 
     @staticmethod
     def _require_template(

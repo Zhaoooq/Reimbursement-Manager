@@ -567,6 +567,29 @@ QFrame#templateMaterialList QCheckBox {
     min-height: 28px;
 }
 
+/* Template editor: let the material list grow without stretching the dialog. */
+QScrollArea#templateMaterialScroll,
+QScrollArea#templateMaterialScroll QWidget#qt_scrollarea_viewport {
+    background: transparent;
+    border: none;
+}
+
+QPushButton#templateAddMaterialButton {
+    background: transparent;
+    border: 1px dashed @SELECTED_BORDER@;
+    color: @ACCENT@;
+    font-weight: 600;
+}
+
+QPushButton#templateAddMaterialButton:hover {
+    background: @HOVER_SURFACE@;
+    border-color: @ACCENT@;
+}
+
+QPushButton#templateAddMaterialButton:pressed {
+    background: @SELECTED_SURFACE@;
+}
+
 /* iOS-11: templates, settings, and desktop modal dialogs share light grouped surfaces. */
 QLabel#templatePageSubtitle, QLabel#settingsPageSubtitle,
 QLabel#settingsSectionDescription, QLabel#settingsRowDetail {

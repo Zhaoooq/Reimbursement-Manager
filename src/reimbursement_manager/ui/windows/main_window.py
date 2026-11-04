@@ -49,7 +49,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from reimbursement_manager.database.models import Attachment, Item
+from reimbursement_manager.database.models import Attachment, Item, MaterialType
 from reimbursement_manager.domain import ReimbursementStatus
 from reimbursement_manager.services.backup_service import BackupService
 from reimbursement_manager.services.restore_service import (
@@ -514,13 +514,54 @@ class NewItemDialog(QDialog):
         return template_id
 
 
+class NewMaterialTypeDialog(QDialog):
+    """Collect one user-defined material type for the template editor."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        layout = _configure_dialog(self, "新增材料类型", minimum_width=460)
+        form = QFormLayout()
+        form.setSpacing(12)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.name_input = QLineEdit()
+        self.name_input.setPlaceholderText("例如：验收单、保修卡")
+        self.name_input.setMaxLength(100)
+        self.description_input = QTextEdit()
+        self.description_input.setFixedHeight(70)
+        self.description_input.setPlaceholderText("可选，用于说明该材料的用途")
+        form.addRow("名称 *", self.name_input)
+        form.addRow("说明", self.description_input)
+        layout.addLayout(form)
+
+        self.buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Save
+        )
+        _configure_dialog_buttons(self.buttons, save_text="添加材料")
+        self.buttons.rejected.connect(self.reject)
+        self.buttons.accepted.connect(self._accept_if_valid)
+        layout.addWidget(self.buttons)
+
+    def _accept_if_valid(self) -> None:
+        if not self.material_name():
+            QMessageBox.warning(self, "无法添加材料类型", "材料名称不能为空。")
+            return
+        self.accept()
+
+    def material_name(self) -> str:
+        return self.name_input.text().strip()
+
+    def description(self) -> str | None:
+        text = self.description_input.toPlainText().strip()
+        return text or None
+
+
 class TemplateEditorDialog(QDialog):
     """Edit the collection-material snapshot used for future Items."""
 
     def __init__(
         self,
         template_service: TemplateService,
-        material_types: list[object],
+        material_types: list[MaterialType],
         template: object | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -542,15 +583,19 @@ class TemplateEditorDialog(QDialog):
         material_title = QLabel("模板材料")
         material_title.setObjectName("dialogSectionTitle")
         layout.addWidget(material_title)
-        material_hint = QLabel("勾选“加入模板”后，可设置该材料是否必需。")
+        material_hint = QLabel(
+            "勾选“加入模板”后，可设置该材料是否必需；"
+            "列表里没有合适的类型时，可新增自定义材料类型。"
+        )
         material_hint.setObjectName("dialogHint")
+        material_hint.setWordWrap(True)
         layout.addWidget(material_hint)
 
         material_list = QFrame()
         material_list.setObjectName("templateMaterialList")
-        material_list_layout = QVBoxLayout(material_list)
-        material_list_layout.setContentsMargins(12, 8, 12, 8)
-        material_list_layout.setSpacing(4)
+        self._material_list_layout = QVBoxLayout(material_list)
+        self._material_list_layout.setContentsMargins(12, 8, 12, 8)
+        self._material_list_layout.setSpacing(4)
 
         selected = {
             value.material_type.code: value.required
@@ -558,20 +603,27 @@ class TemplateEditorDialog(QDialog):
         }
         self.material_inputs: dict[str, tuple[QCheckBox, QCheckBox]] = {}
         for material_type in material_types:
-            material_layout = QHBoxLayout()
-            included = QCheckBox(material_type.name)
-            included.setText(f"加入模板：{material_type.name}")
-            included.setChecked(material_type.code in selected)
-            required = QCheckBox("必需")
-            required.setChecked(selected.get(material_type.code, True))
-            required.setEnabled(included.isChecked())
-            included.toggled.connect(required.setEnabled)
-            material_layout.addWidget(included)
-            material_layout.addWidget(required)
-            material_layout.addStretch()
-            material_list_layout.addLayout(material_layout)
-            self.material_inputs[material_type.code] = (included, required)
-        layout.addWidget(material_list)
+            self._append_material_row(
+                material_type,
+                checked=material_type.code in selected,
+                required=selected.get(material_type.code, True),
+            )
+
+        material_scroll = QScrollArea()
+        material_scroll.setObjectName("templateMaterialScroll")
+        material_scroll.setWidgetResizable(True)
+        material_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        material_scroll.setMaximumHeight(260)
+        material_scroll.setWidget(material_list)
+        layout.addWidget(material_scroll)
+
+        add_material_layout = QHBoxLayout()
+        self.add_material_type_button = QPushButton("+ 新增材料类型")
+        self.add_material_type_button.setObjectName("templateAddMaterialButton")
+        self.add_material_type_button.clicked.connect(self._add_custom_material_type)
+        add_material_layout.addWidget(self.add_material_type_button)
+        add_material_layout.addStretch()
+        layout.addLayout(add_material_layout)
 
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Save
@@ -582,6 +634,48 @@ class TemplateEditorDialog(QDialog):
         self.buttons.rejected.connect(self.reject)
         self.buttons.accepted.connect(self._save)
         layout.addWidget(self.buttons)
+
+    def _append_material_row(
+        self,
+        material_type: MaterialType,
+        *,
+        checked: bool,
+        required: bool | None = None,
+    ) -> None:
+        """Append one selectable material type to the scrollable list."""
+        code = material_type.code
+        if code in self.material_inputs:
+            return
+
+        row = QHBoxLayout()
+        included = QCheckBox(f"加入模板：{material_type.name}")
+        included.setChecked(checked)
+        required_checkbox = QCheckBox("必需")
+        required_checkbox.setChecked(True if required is None else required)
+        required_checkbox.setEnabled(checked)
+        included.toggled.connect(required_checkbox.setEnabled)
+        row.addWidget(included)
+        row.addWidget(required_checkbox)
+        row.addStretch()
+        self._material_list_layout.addLayout(row)
+        self.material_inputs[code] = (included, required_checkbox)
+
+    def _add_custom_material_type(self) -> None:
+        """Create a reusable material type and select it for this template."""
+        dialog = NewMaterialTypeDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        try:
+            material_type = self._template_service.create_material_type(
+                dialog.material_name(), dialog.description()
+            )
+        except (TemplateServiceError, ValueError, SQLAlchemyError) as error:
+            logger.warning("Failed to create a custom material type", exc_info=error)
+            QMessageBox.warning(self, "无法添加材料类型", str(error))
+            return
+
+        self._append_material_row(material_type, checked=True)
 
     def _save(self) -> None:
         selected = [

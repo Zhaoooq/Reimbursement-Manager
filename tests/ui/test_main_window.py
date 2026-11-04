@@ -66,6 +66,7 @@ from reimbursement_manager.ui.windows.main_window import (
     ITEM_DETAIL_PAGE_INDEX,
     NewBatchDialog,
     NewItemDialog,
+    NewMaterialTypeDialog,
     PENDING_MATERIALS_PAGE_INDEX,
     PAGE_TITLES,
     TEMPLATE_MANAGEMENT_PAGE_INDEX,
@@ -941,6 +942,77 @@ def test_template_editor_rejects_blank_name_without_crashing(monkeypatch) -> Non
     finally:
         dialog.close()
         database.dispose()
+
+
+def test_template_editor_adds_a_custom_material_type(
+    monkeypatch,
+) -> None:
+    application = QApplication.instance() or QApplication([])
+    del application
+    database = DatabaseManager.in_memory()
+    Base.metadata.create_all(database.engine)
+    service = TemplateService(database)
+
+    class _AcceptedMaterialTypeDialog:
+        def __init__(self, parent=None) -> None:
+            self._parent = parent
+
+        def exec(self) -> object:
+            return main_window.QDialog.DialogCode.Accepted
+
+        def material_name(self) -> str:
+            return "验收单"
+
+        def description(self) -> str:
+            return "设备到货验收"
+
+    monkeypatch.setattr(main_window, "NewMaterialTypeDialog", _AcceptedMaterialTypeDialog)
+    dialog = TemplateEditorDialog(service, service.list_material_types())
+    try:
+        assert dialog.add_material_type_button.text() == "+ 新增材料类型"
+
+        dialog._add_custom_material_type()
+
+        material_type = next(
+            value for value in service.list_material_types() if value.name == "验收单"
+        )
+        assert material_type.code == "custom"
+        assert material_type.description == "设备到货验收"
+        included, required = dialog.material_inputs[material_type.code]
+        assert included.isChecked()
+        assert required.isChecked()
+        assert required.isEnabled()
+
+        dialog.name_input.setText("验收模板")
+        dialog._save()
+
+        created = service.get_template(dialog.template_id)
+        assert [
+            (value.material_type.code, value.material_type.name, value.required)
+            for value in created.materials
+        ] == [("custom", "验收单", True)]
+    finally:
+        dialog.close()
+        database.dispose()
+
+
+def test_new_material_type_dialog_rejects_blank_name(monkeypatch) -> None:
+    application = QApplication.instance() or QApplication([])
+    del application
+    dialog = NewMaterialTypeDialog()
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        main_window.QMessageBox,
+        "warning",
+        lambda _parent, _title, message: warnings.append(message),
+    )
+    try:
+        dialog._accept_if_valid()
+
+        assert warnings == ["材料名称不能为空。"]
+        assert dialog.result() != main_window.QDialog.DialogCode.Accepted
+    finally:
+        dialog.close()
 
 
 def test_template_editor_changes_do_not_change_existing_item_materials() -> None:
