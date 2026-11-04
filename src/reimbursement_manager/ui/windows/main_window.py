@@ -2029,6 +2029,20 @@ class MainWindow(QMainWindow):
         """Render the payment-merge workflow using the merge service's selection rule."""
         self._clear_layout(self.merged_payment_section_layout)
 
+        material_type_ids = {
+            requirement.material_type.code: requirement.material_type_id
+            for requirement in item.requirements
+        }
+        order_id = material_type_ids.get("order_screenshot")
+        payment_id = material_type_ids.get(PAYMENT_SCREENSHOT_CODE)
+
+        # The merge needs both screenshots; templates that do not ask for an
+        # order screenshot have no payment certificate step at all.
+        merge_applicable = order_id is not None and payment_id is not None
+        self.merged_payment_section.setVisible(merge_applicable)
+        if not merge_applicable:
+            return
+
         title = QLabel("支付凭证")
         title.setObjectName("mergedPaymentSectionTitle")
         self.merged_payment_section_layout.addWidget(title)
@@ -2037,12 +2051,6 @@ class MainWindow(QMainWindow):
         description.setWordWrap(True)
         self.merged_payment_section_layout.addWidget(description)
 
-        material_type_ids = {
-            requirement.material_type.code: requirement.material_type_id
-            for requirement in item.requirements
-        }
-        order_id = material_type_ids.get("order_screenshot")
-        payment_id = material_type_ids.get(PAYMENT_SCREENSHOT_CODE)
         order_attachment = self._latest_usable_merge_source(
             attachments_by_material.get(order_id, []) if order_id is not None else []
         )

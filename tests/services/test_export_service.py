@@ -237,3 +237,99 @@ def test_export_does_not_change_business_state_or_attachment_records(
         (attachment.id, attachment.relative_path, attachment.stored_filename)
         for attachment in attachments.list_attachments(item_id)
     ] == before_attachments
+
+
+def test_exports_original_payment_screenshot_when_merge_is_not_applicable(
+    database: DatabaseManager, tmp_path: Path
+) -> None:
+    batch = BatchService(database).create_batch(name="打印店报销")
+    templates = TemplateService(database)
+    templates.ensure_default_template()
+    template = templates.create_template("打印店")
+    checklist = templates.create_material_type("清单")
+    for sort_order, code in enumerate(
+        ("physical_photo", "payment_screenshot", "invoice", checklist.code), start=1
+    ):
+        templates.add_material(template.id, code, sort_order=sort_order)
+    item = ItemService(database).create_item(
+        batch_id=batch.id,
+        template_id=template.id,
+        sequence_number=1,
+        name="墙报",
+    )
+
+    storage = StoragePathService(tmp_path / "archive")
+    attachments = AttachmentService(database, storage)
+    invoice_path = tmp_path / "invoice.pdf"
+    invoice_path.write_bytes(b"invoice")
+    sources = {
+        "physical_photo": write_image(tmp_path / "photo.png", color="red"),
+        "payment_screenshot": write_image(tmp_path / "payment.png", color="blue"),
+        "invoice": invoice_path,
+        "custom": write_image(tmp_path / "checklist.png", color="yellow"),
+    }
+    for code, source_path in sources.items():
+        attachments.add_attachment(
+            item_id=item.id,
+            material_type_id=material_type_id(database, code),
+            source_path=source_path,
+        )
+
+    result = ExportService(database, storage).export_item(item.id, tmp_path / "export")
+
+    names = sorted(path.name for path in result.exported_files)
+    assert len(names) == 4
+    assert any("实物图_01.png" in name for name in names)
+    assert any("发票_01.pdf" in name for name in names)
+    assert any("支付截图_01.png" in name for name in names)
+    assert any("清单_01.png" in name for name in names)
+    assert not any("订单截图" in name for name in names)
+    assert not any("合并" in name for name in names)
+
+
+def test_exports_original_payment_screenshot_when_merge_is_not_applicable(
+    database: DatabaseManager, tmp_path: Path
+) -> None:
+    batch = BatchService(database).create_batch(name="打印店报销")
+    templates = TemplateService(database)
+    templates.ensure_default_template()
+    template = templates.create_template("打印店")
+    checklist = templates.create_material_type("清单")
+    for sort_order, code in enumerate(
+        ("physical_photo", "payment_screenshot", "invoice", checklist.code), start=1
+    ):
+        templates.add_material(template.id, code, sort_order=sort_order)
+    item = ItemService(database).create_item(
+        batch_id=batch.id,
+        template_id=template.id,
+        sequence_number=1,
+        name="墙报",
+    )
+
+    storage = StoragePathService(tmp_path / "archive")
+    attachments = AttachmentService(database, storage)
+    invoice_path = tmp_path / "invoice.pdf"
+    invoice_path.write_bytes(b"invoice")
+    sources = {
+        "physical_photo": write_image(tmp_path / "photo.png", color="red"),
+        "payment_screenshot": write_image(tmp_path / "payment.png", color="blue"),
+        "invoice": invoice_path,
+        "custom": write_image(tmp_path / "checklist.png", color="yellow"),
+    }
+    for code, source_path in sources.items():
+        attachments.add_attachment(
+            item_id=item.id,
+            material_type_id=material_type_id(database, code),
+            source_path=source_path,
+        )
+
+    result = ExportService(database, storage).export_item(item.id, tmp_path / "export")
+
+    names = sorted(path.name for path in result.exported_files)
+    assert len(names) == 4
+    assert any("实物图_01.png" in name for name in names)
+    assert any("发票_01.pdf" in name for name in names)
+    assert any("支付截图_01.png" in name for name in names)
+    assert any("清单_01.png" in name for name in names)
+    assert not any("订单截图" in name for name in names)
+    assert not any("合并" in name for name in names)

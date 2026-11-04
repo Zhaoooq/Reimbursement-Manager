@@ -73,8 +73,10 @@ from reimbursement_manager.services.payment_screenshot_merge_service import (
 )
 from reimbursement_manager.services.submission_readiness_service import (
     MissingSubmissionMaterial,
+    SubmissionMaterial,
     SubmissionReadinessResult,
     SubmissionReadinessService,
+    build_submission_materials,
 )
 from reimbursement_manager.services.storage_path_service import StoragePathService
 from reimbursement_manager.services.restore_service import (
@@ -179,8 +181,10 @@ __all__ = [
     "MissingSubmissionMaterial",
     "StoragePathService",
     "SubmissionMaterialsIncompleteError",
+    "SubmissionMaterial",
     "SubmissionReadinessResult",
     "SubmissionReadinessService",
+    "build_submission_materials",
     "TemplateMaterialAlreadyExistsError",
     "TemplateMaterialNotFoundError",
     "TemplateNameAlreadyExistsError",

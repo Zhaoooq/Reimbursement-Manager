@@ -169,3 +169,74 @@ def test_submission_readiness_is_independent_of_collection_completeness(
         after_order_removal.required_count,
     ) == (3, 4)
     assert after_order_removal.is_complete is False
+
+
+def create_print_shop_item(
+    database: DatabaseManager, tmp_path: Path
+) -> tuple[int, AttachmentService, StoragePathService]:
+    """Item whose template asks for a checklist but no order screenshot."""
+    batch = BatchService(database).create_batch(name="打印店报销")
+    templates = TemplateService(database)
+    templates.ensure_default_template()
+    template = templates.create_template("打印店")
+    checklist = templates.create_material_type("清单")
+    for sort_order, code in enumerate(
+        ("physical_photo", "payment_screenshot", "invoice", checklist.code), start=1
+    ):
+        templates.add_material(template.id, code, sort_order=sort_order)
+
+    item = ItemService(database).create_item(
+        batch_id=batch.id,
+        template_id=template.id,
+        sequence_number=1,
+        name="墙报",
+    )
+    storage = StoragePathService(tmp_path / "archive")
+    attachments = AttachmentService(database, storage)
+    sources = {
+        "physical_photo": write_image(tmp_path / "photo.png", color="red"),
+        "invoice": tmp_path / "invoice.pdf",
+        "custom": write_image(tmp_path / "checklist.png", color="yellow"),
+    }
+    sources["invoice"].write_bytes(b"invoice")
+    for code, source_path in sources.items():
+        attachments.add_attachment(
+            item_id=item.id,
+            material_type_id=material_type_id(database, code),
+            source_path=source_path,
+        )
+    return item.id, attachments, storage
+
+
+def material_type_id(database: DatabaseManager, code: str) -> int:
+    with database.transaction() as session:
+        material_type = MaterialTypeRepository(session).get_by_code(code)
+        assert material_type is not None
+        return material_type.id
+
+
+def test_template_without_order_screenshot_does_not_require_a_merge(
+    database: DatabaseManager,
+    tmp_path: Path,
+) -> None:
+    item_id, attachments, storage = create_print_shop_item(database, tmp_path)
+    submission = SubmissionReadinessService(database, storage)
+
+    # 实物照片 + 发票 + 清单 are collected; only the payment screenshot is absent.
+    missing_payment = submission.calculate(item_id)
+    assert (
+        missing_payment.completed_count,
+        missing_payment.required_count,
+    ) == (3, 4)
+    assert [material.name for material in missing_payment.missing] == ["支付截图"]
+
+    attachments.add_attachment(
+        item_id=item_id,
+        material_type_id=material_type_id(database, "payment_screenshot"),
+        source_path=write_image(tmp_path / "payment.png", color="blue"),
+    )
+
+    ready = submission.calculate(item_id)
+    assert (ready.completed_count, ready.required_count) == (4, 4)
+    assert ready.is_ready is True
+    assert ready.missing == ()

@@ -13,7 +13,6 @@ from reimbursement_manager.database.repositories import (
     AttachmentRepository,
     BatchRepository,
     ItemRepository,
-    MaterialTypeRepository,
 )
 from reimbursement_manager.domain import AttachmentHealth
 from reimbursement_manager.services.file_service import FileService
@@ -24,19 +23,27 @@ from reimbursement_manager.services.payment_screenshot_merge_service import (
 )
 from reimbursement_manager.services.storage_path_service import StoragePathService
 from reimbursement_manager.services.submission_readiness_service import (
+    MERGED_PAYMENT_SCREENSHOT_CODE,
+    PHYSICAL_PHOTO_CODE,
+    INVOICE_CODE,
+    PAYMENT_SCREENSHOT_CODE,
+    SubmissionMaterial,
     SubmissionReadinessService,
+    build_submission_materials,
 )
 
-
-PHYSICAL_PHOTO_CODE = "physical_photo"
-INVOICE_CODE = "invoice"
-PAYMENT_SCREENSHOT_CODE = "payment_screenshot"
 
 _EXPORT_MATERIAL_NAMES = {
     PHYSICAL_PHOTO_CODE: "实物图",
     INVOICE_CODE: "发票",
     PAYMENT_SCREENSHOT_CODE: "支付截图",
+    MERGED_PAYMENT_SCREENSHOT_CODE: "支付截图",
 }
+
+
+def _export_material_name(material: SubmissionMaterial) -> str:
+    """Use the short export label when known, otherwise the material's own name."""
+    return _EXPORT_MATERIAL_NAMES.get(material.code, material.name)
 
 
 class ExportServiceError(Exception):
@@ -112,7 +119,7 @@ class BatchExportResult:
 @dataclass(frozen=True, slots=True)
 class _ExportFile:
     attachment: Attachment
-    material_code: str
+    material_name: str
     file_index: int
 
 
@@ -407,7 +414,7 @@ class ExportService:
             filename = self._naming_service.generate_filename(
                 sequence_number=item.sequence_number,
                 item_name=item.name,
-                material_name=_EXPORT_MATERIAL_NAMES[export_file.material_code],
+                material_name=export_file.material_name,
                 file_index=export_file.file_index,
                 extension=export_file.attachment.file_extension,
                 existing_names=exported_names,
@@ -422,52 +429,35 @@ class ExportService:
             if item is None:
                 raise ItemNotFoundError(item_id)
 
-            material_types = MaterialTypeRepository(session)
-            material_type_ids = {
-                code: material_type.id
-                for code in (
-                    PHYSICAL_PHOTO_CODE,
-                    INVOICE_CODE,
-                    PAYMENT_SCREENSHOT_CODE,
-                )
-                if (material_type := material_types.get_by_code(code)) is not None
-            }
             attachments = AttachmentRepository(session).list_by_item(item_id)
-            physical_photos = self._usable_originals(
-                attachments, material_type_ids.get(PHYSICAL_PHOTO_CODE)
-            )
-            invoices = self._usable_originals(
-                attachments, material_type_ids.get(INVOICE_CODE)
-            )
-            payment_material_type_id = material_type_ids.get(PAYMENT_SCREENSHOT_CODE)
-            merged_payment = self._latest_usable_merged_payment(
-                attachments, payment_material_type_id
-            )
-
-            files = [
-                *(
-                    _ExportFile(attachment, PHYSICAL_PHOTO_CODE, index)
-                    for index, attachment in enumerate(physical_photos, start=1)
-                ),
-                *(
-                    _ExportFile(attachment, INVOICE_CODE, index)
-                    for index, attachment in enumerate(invoices, start=1)
-                ),
-            ]
-            if merged_payment is not None:
-                files.append(
-                    _ExportFile(
-                        merged_payment, PAYMENT_SCREENSHOT_CODE, file_index=1
+            files: list[_ExportFile] = []
+            for material in build_submission_materials(item.requirements):
+                if material.merged_payment:
+                    merged_payment = self._latest_usable_merged_payment(
+                        attachments, material.material_type_id
                     )
+                    if merged_payment is not None:
+                        files.append(
+                            _ExportFile(
+                                merged_payment,
+                                _export_material_name(material),
+                                file_index=1,
+                            )
+                        )
+                    continue
+                originals = self._usable_originals(
+                    attachments, material.material_type_id
+                )
+                files.extend(
+                    _ExportFile(attachment, _export_material_name(material), index)
+                    for index, attachment in enumerate(originals, start=1)
                 )
             return item, files
 
     @staticmethod
     def _usable_originals(
-        attachments: list[Attachment], material_type_id: int | None
+        attachments: list[Attachment], material_type_id: int
     ) -> list[Attachment]:
-        if material_type_id is None:
-            return []
         return [
             attachment
             for attachment in attachments
@@ -478,7 +468,7 @@ class ExportService:
 
     @staticmethod
     def _latest_usable_merged_payment(
-        attachments: list[Attachment], payment_material_type_id: int | None
+        attachments: list[Attachment], payment_material_type_id: int
     ) -> Attachment | None:
         if payment_material_type_id is None:
             return None
