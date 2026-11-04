@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -53,6 +54,10 @@ def build_readme(version: str = __version__) -> str:
 2. 实际报销附件归档目录
 
 恢复数据库会替换当前数据库；系统会在恢复前自动备份当前数据库。恢复不会恢复图片、PDF 等附件文件。
+
+自动更新
+在“设置 → 应用更新”中检查新版本。
+更新会下载完整程序包，并在重启后替换程序目录；数据库与报销附件不受影响。
 
 Portable 说明
 可以把整个 ReimbursementManager-{version}-{PLATFORM_NAME} 目录复制到其他位置。
@@ -117,11 +122,33 @@ def _restore_release_inheritance(directory: Path) -> None:
             check=True,
             capture_output=True,
             text=True,
+            # icacls writes in the console code page, not in UTF-8.  Without an
+            # explicit encoding the reader thread fails on Chinese output and the
+            # failure is easy to miss.
+            encoding="utf-8",
+            errors="replace",
         )
     except (OSError, subprocess.CalledProcessError) as error:
         raise RuntimeError(
             "Release ACL reset failed; the staged release was not published."
         ) from error
+
+
+def _publish(directory: Path, destination: Path) -> None:
+    """Rename the staged directory into place, retrying while handles clear.
+
+    A freshly written 125 MB tree is briefly held by the antivirus scanner, and
+    a single ``os.replace`` then fails with WinError 5 even though nothing is
+    actually wrong.
+    """
+    for attempt in range(5):
+        try:
+            directory.replace(destination)
+            return
+        except PermissionError:
+            if attempt == 4:
+                raise
+            time.sleep(0.5 * (attempt + 1))
 
 
 def create_release() -> Path:
@@ -145,7 +172,7 @@ def create_release() -> Path:
         (temporary_directory / "README.txt").write_text(build_readme(), encoding="utf-8")
         _validate_release(temporary_directory, __version__)
         _restore_release_inheritance(temporary_directory)
-        temporary_directory.replace(destination)
+        _publish(temporary_directory, destination)
     except Exception:
         shutil.rmtree(temporary_directory, ignore_errors=True)
         raise

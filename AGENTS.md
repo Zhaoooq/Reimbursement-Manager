@@ -856,6 +856,17 @@ MVP 可暂不实现自动修复。
 [图片]
 ```
 
+### UI 文案原则
+
+Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining.
+
+避免不必要的次要标签和描述，让布局本身来传达信息。
+
+```text
+能用位置、分组、视觉层次表达的关系，不再重复写一遍文字
+只有当缺少该文字会让用户无法判断「这是什么」或「能不能操作」时，才补一句说明
+```
+
 ---
 
 ## 18. Dashboard 核心逻辑

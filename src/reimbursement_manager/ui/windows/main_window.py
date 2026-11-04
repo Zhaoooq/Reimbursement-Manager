@@ -100,6 +100,7 @@ from reimbursement_manager.services.payment_screenshot_merge_service import (
     PAYMENT_SCREENSHOT_CODE,
     is_merged_payment_screenshot,
 )
+from reimbursement_manager.ui.windows.update_dialog import UpdateContext, UpdateSection
 from reimbursement_manager.version import __version__
 
 
@@ -783,8 +784,10 @@ class MainWindow(QMainWindow):
         backup_service: BackupService | None = None,
         restore_service: RestoreService | None = None,
         workflow_service: WorkflowService | None = None,
+        update_context: UpdateContext | None = None,
     ) -> None:
         super().__init__()
+        self._update_context = update_context
         self._dashboard_service = dashboard_service
         self._batch_service = batch_service
         self._item_service = item_service
@@ -994,6 +997,12 @@ class MainWindow(QMainWindow):
         self.application_version_label.setObjectName("settingsRowDetail")
         application_layout.addWidget(self.application_version_label)
         layout.addWidget(application_section)
+
+        self.update_section: UpdateSection | None = None
+        if self._update_context is not None:
+            self.update_section = UpdateSection(self._update_context, page)
+            layout.addWidget(self.update_section)
+
         layout.addStretch()
         return page
 

@@ -1,9 +1,11 @@
 from pathlib import Path
 import logging
+import sys
 
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
+from reimbursement_manager import updater
 from reimbursement_manager.config import AppPaths, AppSettings, is_packaged_runtime
 from reimbursement_manager.database import DatabaseManager, upgrade_database
 from reimbursement_manager.database.seed import initialize_default_material_types
@@ -22,13 +24,47 @@ from reimbursement_manager.services import (
     StoragePathService,
     SubmissionReadinessService,
     TemplateService,
+    UpdateService,
     WorkflowService,
 )
 from reimbursement_manager.services.backup_service import BackupService
 from reimbursement_manager.ui.windows import MainWindow
+from reimbursement_manager.ui.windows.update_dialog import UpdateContext
+from reimbursement_manager.version import __version__
 
 
 logger = logging.getLogger(__name__)
+
+
+def build_update_context(
+    settings: AppSettings, *, frozen: bool | None = None
+) -> UpdateContext | None:
+    """Return the update wiring, or ``None`` when running from a checkout.
+
+    A development run has no installation directory to replace, so the settings
+    page hides the update block entirely.
+    """
+    if not is_packaged_runtime(frozen=frozen):
+        return None
+    return UpdateContext(
+        service=UpdateService(),
+        current_version=__version__,
+        install_directory=updater.current_install_directory(),
+        updates_directory=settings.paths.app_data_dir / "updates",
+    )
+
+
+def report_previous_update(parent: MainWindow) -> None:
+    """Tell the user how the update that relaunched the app ended."""
+    result = updater.consume_update_result()
+    if result is None:
+        return
+    if result.success:
+        QMessageBox.information(parent, "更新完成", f"已更新到版本 {result.version}。")
+        return
+    QMessageBox.warning(
+        parent, "更新未完成", result.message or "更新未能完成，请重新检查更新。"
+    )
 
 
 def initialize_runtime_database(
@@ -89,8 +125,14 @@ def main(
     *,
     run_event_loop: bool = True,
     frozen: bool | None = None,
+    argv: list[str] | None = None,
 ) -> int:
     """Start the local application and show its service-backed Dashboard."""
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if updater.is_update_invocation(arguments):
+        # Installing an update must not touch the database or start Qt.
+        return updater.run_from_command_line(arguments)
+
     settings, _legacy_migration_result = initialize_runtime_database(
         project_root, frozen=frozen
     )
@@ -114,6 +156,10 @@ def main(
 
     application = QApplication.instance() or QApplication([])
     application.setFont(QFont("Microsoft YaHei UI", 9))
+    update_context = build_update_context(settings, frozen=frozen)
+    if update_context is not None:
+        # The update that just restarted us left its download and staging copy.
+        updater.cleanup_update_workspace(update_context.updates_directory)
     window = MainWindow(
         dashboard_service,
         batch_service,
@@ -138,11 +184,13 @@ def main(
         backup_service=BackupService(database, settings),
         restore_service=RestoreService(database, settings),
         workflow_service=WorkflowService(database, submission_readiness_service),
+        update_context=update_context,
     )
     try:
         if not run_event_loop:
             return 0
         window.show()
+        report_previous_update(window)
         return application.exec()
     finally:
         window.close()

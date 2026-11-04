@@ -562,6 +562,29 @@ QFrame#templateMaterialList {
     border-radius: @CARD_RADIUS@px;
 }
 
+/* Update dialog: release notes are read-only body text, not an editor. */
+QTextBrowser#updateNotes {
+    background: @SURFACE@;
+    border: 1px solid @BORDER@;
+    border-radius: @CARD_RADIUS@px;
+    color: @SECONDARY_TEXT@;
+    padding: 8px 10px;
+    selection-background-color: @SELECTED_SURFACE@;
+}
+
+QProgressBar#updateProgress {
+    min-height: 8px;
+    max-height: 8px;
+    border: none;
+    border-radius: 4px;
+    background: @HOVER_SURFACE@;
+}
+
+QProgressBar#updateProgress::chunk {
+    border-radius: 4px;
+    background: @ACCENT@;
+}
+
 QFrame#templateMaterialList QCheckBox {
     background: transparent;
     min-height: 28px;

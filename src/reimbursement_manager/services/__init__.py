@@ -111,6 +111,13 @@ from reimbursement_manager.services.workflow_service import (
     WorkflowService,
     WorkflowServiceError,
 )
+from reimbursement_manager.services.update_service import (
+    UpdateArchiveError,
+    UpdateError,
+    UpdateInfo,
+    UpdateService,
+    UpdateUnavailableError,
+)
 
 __all__ = [
     "AttachmentCopyVerificationError",
@@ -194,4 +201,9 @@ __all__ = [
     "WorkflowBatchNotFoundError",
     "WorkflowService",
     "WorkflowServiceError",
+    "UpdateArchiveError",
+    "UpdateError",
+    "UpdateInfo",
+    "UpdateService",
+    "UpdateUnavailableError",
 ]

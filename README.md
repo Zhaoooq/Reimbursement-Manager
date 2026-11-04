@@ -2,7 +2,7 @@
 
 ReimbursementManager 是一个 Windows 优先、单用户、本地运行的报销材料管理工具。它围绕“报销批次 → 报销物品 → 材料要求 → 实际附件”组织资料，帮助你确认材料是否齐全、快速定位文件，并导出整理好的报销材料。
 
-当前稳定版本：**v0.2.1**
+当前稳定版本：**v0.2.2**
 
 ## 主要功能
 
@@ -15,6 +15,7 @@ ReimbursementManager 是一个 Windows 优先、单用户、本地运行的报�
 - 提供 Dashboard、批次、全部物品、待补材料、模板管理和设置页面；支持按名称、商家、订单号和批次搜索。
 - 导出单个物品、完整批次或批次 ZIP；材料不完整时可取消或明确选择强制导出，并生成说明文件。
 - 通过“设置”页面备份和恢复 SQLite 数据库；恢复前会先创建安全备份。
+- 在“设置 → 应用更新”中检查并安装新版本：下载发布包、校验 SHA-256、重启后替换程序目录，数据库与附件不受影响。
 
 ## 使用 Portable 发布版
 
@@ -115,16 +116,28 @@ python scripts/create_release.py
 
 ```text
 release/
-└─ ReimbursementManager-0.2.1-win64/
+└─ ReimbursementManager-0.2.2-win64/
 ```
 
 构建和发布产物不包含用户数据库、日志、备份或报销附件。
+
+### 更新本机已安装的版本
+
+如果已经在本机安装过，构建完成后可以直接覆盖安装目录，不必再去 GitHub 下载：
+
+```powershell
+python scripts/deploy_local.py            # 构建 → 复制 → 重建桌面快捷方式
+python scripts/deploy_local.py --skip-build  # 跳过构建，部署现有 dist/
+```
+
+也可以双击 `scripts/deploy_local.cmd`。程序文件替换为整目录替换，用户数据位于 `%LOCALAPPDATA%\ReimbursementManager`，不受影响。
 
 ## 项目结构
 
 ```text
 src/reimbursement_manager/
 ├─ app.py                 # 应用启动与服务装配
+├─ updater.py             # 安装已下载的更新并重启（--apply-update 入口）
 ├─ config/                # 开发与发布运行路径
 ├─ database/              # SQLAlchemy 模型、仓储与 Alembic migration
 ├─ domain/                # 领域枚举
