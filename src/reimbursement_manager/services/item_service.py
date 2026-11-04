@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date
 from typing import TYPE_CHECKING
 
@@ -18,7 +19,11 @@ if TYPE_CHECKING:
     from reimbursement_manager.services.attachment_service import (
         AttachmentService,
         AttachmentTrashMove,
+        ItemStorageRename,
     )
+
+
+logger = logging.getLogger(__name__)
 
 
 class ItemServiceError(Exception):
@@ -148,14 +153,102 @@ class ItemService:
         with self._database.transaction() as session:
             return ItemRepository(session).search(query)
 
+    def allocate_sequence(self, batch_id: int) -> int:
+        """Return the sequence number for a new Item, closing old gaps first.
+
+        Deletion already compacts a batch, so gaps here only come from data
+        written before compaction existed.  Renumbering first keeps the new
+        Item at the end of the batch instead of filling an older hole.
+        """
+        try:
+            self.compact_sequences(batch_id)
+        except ItemServiceError:
+            raise
+        except Exception:
+            logger.warning(
+                "Failed to compact sequence numbers before adding an item "
+                "to batch %s",
+                batch_id,
+                exc_info=True,
+            )
+        with self._database.transaction() as session:
+            sequences = [
+                item.sequence_number
+                for item in ItemRepository(session).list_by_batch(batch_id)
+            ]
+        return max(sequences, default=0) + 1
+
+    def compact_sequences(self, batch_id: int) -> list[Item]:
+        """Renumber a batch's Items to 1..n and move their archive files.
+
+        Items keep their creation order.  Attachment rows and managed files
+        follow their Item, so archive names stay aligned with the new numbers.
+        """
+        with self._database.transaction() as session:
+            batch = BatchRepository(session).get_by_id(batch_id)
+            if batch is None:
+                raise BatchNotFoundError(batch_id)
+
+            item_repository = ItemRepository(session)
+            items = sorted(
+                item_repository.list_by_batch(batch_id),
+                key=lambda value: (value.sequence_number, value.id),
+            )
+            assignments = [
+                (item, target_sequence)
+                for target_sequence, item in enumerate(items, start=1)
+                if item.sequence_number != target_sequence
+            ]
+            if not assignments:
+                return items
+
+            storage_moves: list[ItemStorageRename] = []
+            try:
+                if self._attachment_service is not None:
+                    for item, target_sequence in assignments:
+                        storage_moves.extend(
+                            self._attachment_service.rename_item_storage(
+                                session,
+                                item=item,
+                                batch=batch,
+                                new_sequence_number=target_sequence,
+                            )
+                        )
+
+                # Two phases keep the unique (batch_id, sequence_number)
+                # constraint satisfiable whatever order rows are flushed in.
+                highest_sequence = max(
+                    (item.sequence_number for item in items), default=0
+                )
+                for offset, (item, _) in enumerate(assignments, start=1):
+                    item.sequence_number = highest_sequence + offset
+                session.flush()
+
+                for item, target_sequence in assignments:
+                    item.sequence_number = target_sequence
+                session.flush()
+            except Exception as operation_error:
+                if storage_moves and self._attachment_service is not None:
+                    self._attachment_service.restore_item_storage_renames(
+                        storage_moves, operation_error
+                    )
+                raise
+            return items
+
     def delete_item(self, item_id: int) -> None:
-        """Safely delete one Item and move each managed attachment to Trash."""
+        """Safely delete one Item, trash its attachments, and compact numbers.
+
+        Sequence compaction runs after the deletion has committed, so failing
+        to rename files can never turn a successful delete into an error.
+        """
         attachment_moves: list[AttachmentTrashMove] = []
         item: Item | None = None
+        batch_id: int | None = None
         try:
             with self._database.transaction() as session:
                 item_repository = ItemRepository(session)
                 item = self._require_loaded_item(item_repository, item_id)
+                batch_id = item.batch_id
                 attachment_repository = AttachmentRepository(session)
                 attachments = attachment_repository.list_by_item(item_id)
                 if attachments and self._attachment_service is None:
@@ -181,6 +274,19 @@ class ItemService:
 
         if item is not None and self._attachment_service is not None:
             self._attachment_service.remove_item_directory_if_empty(item)
+        if batch_id is not None:
+            self._resequence_after_deletion(batch_id)
+
+    def _resequence_after_deletion(self, batch_id: int) -> None:
+        """Compact sequence numbers after a deletion that already succeeded."""
+        try:
+            self.compact_sequences(batch_id)
+        except Exception:
+            logger.warning(
+                "Deleted item but failed to compact sequence numbers for batch %s",
+                batch_id,
+                exc_info=True,
+            )
 
     @staticmethod
     def _require_loaded_item(

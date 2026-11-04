@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from datetime import date
+from pathlib import Path
 
 import pytest
 from sqlalchemy import func, select
@@ -381,3 +382,200 @@ def test_delete_item_restores_files_when_item_database_delete_fails(
     with database.transaction() as session:
         assert session.get(Item, item.id) is not None
         assert session.get(Attachment, attachment.id) is not None
+
+
+def add_invoice_attachment(
+    database: DatabaseManager,
+    attachments: AttachmentService,
+    *,
+    item_id: int,
+    source_path: Path,
+) -> Attachment:
+    with database.transaction() as session:
+        invoice = MaterialTypeRepository(session).get_by_code("invoice")
+        assert invoice is not None
+        invoice_id = invoice.id
+    source_path.write_bytes(b"invoice")
+    return attachments.add_attachment(
+        item_id=item_id, material_type_id=invoice_id, source_path=source_path
+    )
+
+
+def test_delete_item_compacts_following_sequence_numbers(
+    database: DatabaseManager, tmp_path
+) -> None:
+    template = TemplateService(database).ensure_default_template()
+    batch_id = create_batch(database)
+    storage = StoragePathService(tmp_path / "archive")
+    items = ItemService(database, AttachmentService(database, storage))
+    items.create_item(
+        batch_id=batch_id,
+        template_id=template.id,
+        sequence_number=1,
+        name="第一个物品",
+    )
+    second = items.create_item(
+        batch_id=batch_id,
+        template_id=template.id,
+        sequence_number=2,
+        name="第二个物品",
+    )
+    items.create_item(
+        batch_id=batch_id,
+        template_id=template.id,
+        sequence_number=3,
+        name="第三个物品",
+    )
+
+    items.delete_item(second.id)
+
+    assert [
+        (item.name, item.sequence_number)
+        for item in items.list_items_by_batch(batch_id)
+    ] == [("第一个物品", 1), ("第三个物品", 2)]
+    assert items.allocate_sequence(batch_id) == 3
+
+
+def test_allocate_sequence_closes_old_gaps_before_adding_an_item(
+    database: DatabaseManager, tmp_path
+) -> None:
+    template = TemplateService(database).ensure_default_template()
+    batch_id = create_batch(database)
+    storage = StoragePathService(tmp_path / "archive")
+    attachments = AttachmentService(database, storage)
+    items = ItemService(database, attachments)
+    items.create_item(
+        batch_id=batch_id,
+        template_id=template.id,
+        sequence_number=1,
+        name="第一个物品",
+    )
+    third = items.create_item(
+        batch_id=batch_id,
+        template_id=template.id,
+        sequence_number=3,
+        name="第三个物品",
+    )
+    attachment = add_invoice_attachment(
+        database,
+        attachments,
+        item_id=third.id,
+        source_path=tmp_path / "invoice.pdf",
+    )
+    original_path = storage.resolve_relative_path(attachment.relative_path)
+
+    assert items.allocate_sequence(batch_id) == 3
+
+    assert [
+        (item.name, item.sequence_number)
+        for item in items.list_items_by_batch(batch_id)
+    ] == [("第一个物品", 1), ("第三个物品", 2)]
+    refreshed = attachments.list_attachments(third.id)[0]
+    assert refreshed.stored_filename == "002_第三个物品_发票_01.pdf"
+    assert storage.resolve_relative_path(refreshed.relative_path).exists()
+    assert not original_path.exists()
+
+
+def test_delete_item_moves_archive_files_to_the_compacted_sequence(
+    database: DatabaseManager, tmp_path
+) -> None:
+    template = TemplateService(database).ensure_default_template()
+    batch_id = create_batch(database)
+    storage = StoragePathService(tmp_path / "archive")
+    attachments = AttachmentService(database, storage)
+    items = ItemService(database, attachments)
+    first = items.create_item(
+        batch_id=batch_id,
+        template_id=template.id,
+        sequence_number=1,
+        name="第一个物品",
+    )
+    second = items.create_item(
+        batch_id=batch_id,
+        template_id=template.id,
+        sequence_number=2,
+        name="第二个物品",
+    )
+    attachment = add_invoice_attachment(
+        database,
+        attachments,
+        item_id=second.id,
+        source_path=tmp_path / "invoice.pdf",
+    )
+    original_path = storage.resolve_relative_path(attachment.relative_path)
+    assert original_path.parent.name == "002_第二个物品"
+    assert original_path.name == "002_第二个物品_发票_01.pdf"
+
+    items.delete_item(first.id)
+
+    refreshed = attachments.list_attachments(second.id)[0]
+    assert refreshed.stored_filename == "001_第二个物品_发票_01.pdf"
+    new_path = storage.resolve_relative_path(refreshed.relative_path)
+    assert new_path.parent.name == "001_第二个物品"
+    assert new_path.read_bytes() == b"invoice"
+    assert not original_path.exists()
+    assert items.get_item(second.id).sequence_number == 1
+
+
+def test_compact_sequences_restores_files_when_a_storage_rename_fails(
+    database: DatabaseManager, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    template = TemplateService(database).ensure_default_template()
+    batch_id = create_batch(database)
+    storage = StoragePathService(tmp_path / "archive")
+    attachments = AttachmentService(database, storage)
+    items = ItemService(database, attachments)
+    original_paths: list[Path] = []
+    for sequence_number, name in ((2, "甲"), (3, "乙"), (4, "丙")):
+        item = items.create_item(
+            batch_id=batch_id,
+            template_id=template.id,
+            sequence_number=sequence_number,
+            name=name,
+        )
+        attachment = add_invoice_attachment(
+            database,
+            attachments,
+            item_id=item.id,
+            source_path=tmp_path / f"{sequence_number}.pdf",
+        )
+        original_paths.append(
+            storage.resolve_relative_path(attachment.relative_path)
+        )
+
+    original_rename = AttachmentService.rename_item_storage
+    call_count = 0
+
+    def fail_on_second_rename(
+        service: AttachmentService,
+        session,
+        *,
+        item: Item,
+        batch,
+        new_sequence_number: int,
+    ) -> list:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            raise OSError("simulated storage rename failure")
+        return original_rename(
+            service,
+            session,
+            item=item,
+            batch=batch,
+            new_sequence_number=new_sequence_number,
+        )
+
+    monkeypatch.setattr(
+        AttachmentService, "rename_item_storage", fail_on_second_rename
+    )
+
+    with pytest.raises(OSError, match="simulated storage rename failure"):
+        items.compact_sequences(batch_id)
+
+    assert [
+        (item.name, item.sequence_number)
+        for item in items.list_items_by_batch(batch_id)
+    ] == [("甲", 2), ("乙", 3), ("丙", 4)]
+    for original_path in original_paths:
+        assert original_path.read_bytes() == b"invoice"

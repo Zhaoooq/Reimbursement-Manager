@@ -7,6 +7,7 @@ from reimbursement_manager.services.attachment_service import (
     AttachmentServiceError,
     AttachmentTrashMove,
     DuplicateAttachmentError,
+    ItemStorageRename,
     MaterialRequirementNotFoundError,
     UnsupportedAttachmentTypeError,
 )
@@ -158,6 +159,7 @@ __all__ = [
     "ItemSequenceAlreadyExistsError",
     "ItemService",
     "ItemServiceError",
+    "ItemStorageRename",
     "ImageMergeError",
     "ImageMergeService",
     "IncompleteDashboardItem",

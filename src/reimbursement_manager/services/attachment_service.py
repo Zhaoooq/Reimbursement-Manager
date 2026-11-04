@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
+from datetime import date
+from pathlib import Path, PurePosixPath
 from typing import Iterable
 
 from sqlalchemy.orm import Session
@@ -11,6 +12,7 @@ from reimbursement_manager.database.models import (
     Attachment,
     Item,
     MaterialRequirement,
+    ReimbursementBatch,
 )
 from reimbursement_manager.database.repositories import (
     AttachmentRepository,
@@ -125,6 +127,14 @@ class AttachmentTrashMove:
 
     original_path: Path
     trash_path: Path
+
+
+@dataclass(frozen=True)
+class ItemStorageRename:
+    """One physical archive move that can be reversed after a DB rollback."""
+
+    original_path: Path
+    new_path: Path
 
 
 class AttachmentService:
@@ -381,6 +391,188 @@ class AttachmentService:
         except OSError:
             # A non-empty directory may contain a user-managed file; retain it.
             return
+
+    def rename_item_storage(
+        self,
+        session: Session,
+        *,
+        item: Item,
+        batch: ReimbursementBatch,
+        new_sequence_number: int,
+    ) -> list[ItemStorageRename]:
+        """Move one Item's archive files onto its new sequence-numbered paths.
+
+        The caller owns the database transaction.  Attachment rows are updated
+        in place, and the returned moves let the caller restore every file when
+        a later database operation fails.
+        """
+        old_sequence_number = item.sequence_number
+        if new_sequence_number <= 0:
+            raise ValueError("new_sequence_number must be greater than zero")
+        if new_sequence_number == old_sequence_number:
+            return []
+
+        batch_name = batch.name
+        batch_date = batch.created_at.date()
+        old_directory = self._storage_path_service.get_item_directory(
+            batch_name=batch_name,
+            batch_date=batch_date,
+            sequence_number=old_sequence_number,
+            item_name=item.name,
+        )
+        new_directory = self._storage_path_service.get_item_directory(
+            batch_name=batch_name,
+            batch_date=batch_date,
+            sequence_number=new_sequence_number,
+            item_name=item.name,
+        )
+
+        moves: list[ItemStorageRename] = []
+        try:
+            for attachment in AttachmentRepository(session).list_by_item(item.id):
+                try:
+                    original_path = (
+                        self._storage_path_service.resolve_relative_path(
+                            attachment.relative_path
+                        )
+                    )
+                except ValueError:
+                    continue
+                stored_filename, relative_path, destination = (
+                    self._renamed_attachment_target(
+                        batch_name=batch_name,
+                        batch_date=batch_date,
+                        item_name=item.name,
+                        old_sequence_number=old_sequence_number,
+                        new_sequence_number=new_sequence_number,
+                        stored_filename=attachment.stored_filename,
+                        original_path=original_path,
+                    )
+                )
+                if (
+                    destination != original_path
+                    and self._file_service.file_exists(original_path)
+                ):
+                    self._file_service.ensure_directory(destination.parent)
+                    self._file_service.move_file(original_path, destination)
+                    moves.append(ItemStorageRename(original_path, destination))
+                attachment.stored_filename = stored_filename
+                attachment.relative_path = relative_path.as_posix()
+
+            moves.extend(
+                self._move_leftover_item_files(
+                    old_directory=old_directory,
+                    new_directory=new_directory,
+                )
+            )
+            return moves
+        except Exception as operation_error:
+            self.restore_item_storage_renames(moves, operation_error)
+            raise
+
+    def restore_item_storage_renames(
+        self,
+        moves: Iterable[ItemStorageRename],
+        operation_error: Exception,
+    ) -> None:
+        """Restore archive files after the caller's transaction failed."""
+        for move in reversed(list(moves)):
+            if not self._file_service.file_exists(move.new_path):
+                continue
+            try:
+                self._file_service.ensure_directory(move.original_path.parent)
+                self._file_service.move_file(move.new_path, move.original_path)
+            except Exception as restore_error:
+                raise AttachmentRemovalRollbackError(
+                    move.original_path, operation_error, restore_error
+                ) from operation_error
+
+    def _move_leftover_item_files(
+        self, *, old_directory: Path, new_directory: Path
+    ) -> list[ItemStorageRename]:
+        """Carry user-managed files along when an Item directory is renamed."""
+        if old_directory == new_directory or not old_directory.is_dir():
+            return []
+
+        moves: list[ItemStorageRename] = []
+        for child in sorted(
+            old_directory.iterdir(), key=lambda value: value.name.casefold()
+        ):
+            if not child.is_file():
+                continue
+            self._file_service.ensure_directory(new_directory)
+            target = self._available_path(new_directory / child.name)
+            self._file_service.move_file(child, target)
+            moves.append(ItemStorageRename(child, target))
+        try:
+            old_directory.rmdir()
+        except OSError:
+            # A remaining sub-directory is user content; keep it untouched.
+            pass
+        return moves
+
+    def _renamed_attachment_target(
+        self,
+        *,
+        batch_name: str,
+        batch_date: date,
+        item_name: str,
+        old_sequence_number: int,
+        new_sequence_number: int,
+        stored_filename: str,
+        original_path: Path,
+    ) -> tuple[str, PurePosixPath, Path]:
+        candidate = self._replace_sequence_prefix(
+            stored_filename,
+            old_sequence_number=old_sequence_number,
+            new_sequence_number=new_sequence_number,
+        )
+        stem = Path(candidate).stem
+        suffix = Path(candidate).suffix
+        index = 2
+        while True:
+            relative_path = (
+                self._storage_path_service.get_attachment_relative_path(
+                    batch_name=batch_name,
+                    batch_date=batch_date,
+                    sequence_number=new_sequence_number,
+                    item_name=item_name,
+                    stored_filename=candidate,
+                )
+            )
+            destination = self._storage_path_service.resolve_relative_path(
+                relative_path
+            )
+            if destination == original_path or not destination.exists():
+                return candidate, relative_path, destination
+            candidate = f"{stem}-{index}{suffix}"
+            index += 1
+
+    @staticmethod
+    def _replace_sequence_prefix(
+        stored_filename: str,
+        *,
+        old_sequence_number: int,
+        new_sequence_number: int,
+    ) -> str:
+        old_prefix = f"{old_sequence_number:03d}_"
+        if not stored_filename.startswith(old_prefix):
+            return stored_filename
+        remainder = stored_filename[len(old_prefix) :]
+        return f"{new_sequence_number:03d}_{remainder}"
+
+    @staticmethod
+    def _available_path(path: Path) -> Path:
+        if not path.exists():
+            return path
+        stem = path.stem
+        suffix = path.suffix
+        index = 2
+        while True:
+            candidate = path.with_name(f"{stem}-{index}{suffix}")
+            if not candidate.exists():
+                return candidate
+            index += 1
 
     @staticmethod
     def _require_material_requirement(
