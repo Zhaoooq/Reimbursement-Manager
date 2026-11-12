@@ -2,7 +2,7 @@
 
 ReimbursementManager 是一个 Windows 优先、单用户、本地运行的报销材料管理工具。它围绕“报销批次 → 报销物品 → 材料要求 → 实际附件”组织资料，帮助你确认材料是否齐全、快速定位文件，并导出整理好的报销材料。
 
-当前稳定版本：**v0.2.4**
+当前稳定版本：**v0.2.7**
 
 ## 主要功能
 
@@ -116,7 +116,7 @@ python scripts/create_release.py
 
 ```text
 release/
-└─ ReimbursementManager-0.2.4-win64/
+└─ ReimbursementManager-0.2.7-win64/
 ```
 
 构建和发布产物不包含用户数据库、日志、备份或报销附件。

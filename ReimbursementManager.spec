@@ -20,6 +20,10 @@ datas = [
         "reimbursement_manager/ui/styles",
     ),
     (
+        str(SOURCE_ROOT / "reimbursement_manager" / "ui" / "resources"),
+        "reimbursement_manager/ui/resources",
+    ),
+    (
         str(SOURCE_ROOT / "reimbursement_manager" / "database" / "migrations"),
         "reimbursement_manager/database/migrations",
     ),

@@ -15,7 +15,11 @@ env/
 build/
 dist/
 release/
+release-build/
 *.egg-info/
+
+# Local UI screenshots and scratch renders
+.ui-preview/
 
 # IDE and OS metadata
 .idea/

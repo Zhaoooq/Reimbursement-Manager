@@ -1,6 +1,15 @@
-/* iOS-1: shared light theme. Values are supplied by ui.theme.ThemeTokens. */
+/* Shared light theme.
+ *
+ * Every value comes from ui.theme.ThemeTokens.  Rules are grouped by concern and
+ * each selector is declared exactly once — later overrides are what made the
+ * previous revision unmaintainable, so do not re-declare a selector here.
+ */
+
+/* ---------------------------------------------------------------------------
+ * 1. Base and application shell
+ * ------------------------------------------------------------------------ */
+
 QWidget {
-    background: @APP_BACKGROUND@;
     color: @PRIMARY_TEXT@;
     font-family: @FONT_FAMILY@, sans-serif;
     font-size: @BODY_SIZE@px;
@@ -10,6 +19,36 @@ QMainWindow, QWidget#appRoot {
     background: @APP_BACKGROUND@;
 }
 
+QStackedWidget#pageStack, QWidget#contentPage {
+    background: @APP_BACKGROUND@;
+}
+
+/* Scroll containers keep the page colour; the content widget paints itself. */
+QScrollArea {
+    background: transparent;
+    border: none;
+}
+
+QScrollArea#itemDetailScrollArea, QScrollArea#dashboardPendingArea,
+QScrollArea#settingsScrollArea {
+    background: transparent;
+    border: none;
+}
+
+QScrollArea#itemDetailScrollArea QWidget#qt_scrollarea_viewport,
+QScrollArea#dashboardPendingArea QWidget#qt_scrollarea_viewport,
+QScrollArea#settingsScrollArea QWidget#qt_scrollarea_viewport {
+    background: @APP_BACKGROUND@;
+}
+
+QWidget#itemDetailContent, QWidget#settingsContent, QWidget#dashboardPendingContainer {
+    background: @APP_BACKGROUND@;
+}
+
+/* ---------------------------------------------------------------------------
+ * 2. Sidebar and navigation
+ * ------------------------------------------------------------------------ */
+
 QFrame#sidebar {
     background: @SECONDARY_SURFACE@;
     border-right: 1px solid @BORDER@;
@@ -18,7 +57,7 @@ QFrame#sidebar {
 QLabel#appTitle {
     background: transparent;
     color: @PRIMARY_TEXT@;
-    font-size: 15px;
+    font-size: @BODY_SIZE@px;
     font-weight: 600;
     padding: 2px 8px 8px 8px;
 }
@@ -48,7 +87,7 @@ QListWidget#primaryNavigation::item, QListWidget#managementNavigation::item {
     border: 1px solid transparent;
     border-radius: @CONTROL_RADIUS@px;
     color: @SECONDARY_TEXT@;
-    height: 38px;
+    height: @NAV_ITEM_HEIGHT@px;
     margin: 1px 0;
     padding: 0 12px;
 }
@@ -65,15 +104,15 @@ QListWidget#primaryNavigation::item:selected, QListWidget#managementNavigation::
     font-weight: 600;
 }
 
-QStackedWidget#pageStack, QWidget#contentPage {
-    background: @APP_BACKGROUND@;
-}
+/* ---------------------------------------------------------------------------
+ * 3. Buttons
+ * ------------------------------------------------------------------------ */
 
 QPushButton {
     background: @SURFACE@;
     border: 1px solid @BORDER@;
     border-radius: @CONTROL_RADIUS@px;
-    min-height: 34px;
+    min-height: @CONTROL_HEIGHT@px;
     padding: 0 12px;
 }
 
@@ -86,9 +125,13 @@ QPushButton:pressed {
     background: @SEPARATOR@;
 }
 
+QPushButton:focus {
+    border-color: @ACCENT@;
+}
+
 QPushButton:disabled {
     background: @SECONDARY_SURFACE@;
-    border-color: @BORDER@;
+    border-color: @SEPARATOR@;
     color: @TERTIARY_TEXT@;
 }
 
@@ -127,6 +170,12 @@ QPushButton#primaryButton[quiet="true"]:hover {
     border-color: @SELECTED_BORDER@;
 }
 
+QPushButton#primaryButton[quiet="true"]:disabled {
+    background: @SECONDARY_SURFACE@;
+    border-color: @SEPARATOR@;
+    color: @TERTIARY_TEXT@;
+}
+
 QPushButton#dangerButton {
     background: @DANGER_SURFACE@;
     border-color: @DANGER_BORDER@;
@@ -134,19 +183,23 @@ QPushButton#dangerButton {
 }
 
 QPushButton#dangerButton:hover {
-    background: #FFE4E2;
+    background: @DANGER_HOVER_SURFACE@;
     border-color: @DANGER@;
 }
 
 QPushButton#dangerButton:pressed {
-    background: #FFD4D0;
+    background: @DANGER_PRESSED_SURFACE@;
 }
 
 QPushButton#dangerButton:disabled {
-    background: #F7F2F2;
-    border-color: #E5D5D3;
-    color: #B08C88;
+    background: @DANGER_ZONE_SURFACE@;
+    border-color: @DANGER_ZONE_BORDER@;
+    color: @TERTIARY_TEXT@;
 }
+
+/* ---------------------------------------------------------------------------
+ * 4. Inputs and small controls
+ * ------------------------------------------------------------------------ */
 
 QLineEdit, QTextEdit, QComboBox, QDateEdit {
     background: @SURFACE@;
@@ -160,17 +213,35 @@ QLineEdit, QComboBox, QDateEdit {
 }
 
 QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QDateEdit:focus {
-    border: 2px solid @ACCENT@;
+    border-color: @ACCENT@;
 }
 
 QLineEdit:disabled, QTextEdit:disabled, QComboBox:disabled, QDateEdit:disabled {
     background: @SECONDARY_SURFACE@;
-    border-color: @BORDER@;
+    border-color: @SEPARATOR@;
     color: @TERTIARY_TEXT@;
 }
 
 QLineEdit::placeholder, QTextEdit::placeholder {
     color: @TERTIARY_TEXT@;
+}
+
+QComboBox QAbstractItemView, QMenu {
+    background: @SURFACE@;
+    border: 1px solid @BORDER@;
+    border-radius: @CONTROL_RADIUS@px;
+    padding: 4px;
+    outline: none;
+    selection-background-color: @SELECTED_SURFACE@;
+    selection-color: @PRIMARY_TEXT@;
+}
+
+QToolTip {
+    background: @SURFACE@;
+    border: 1px solid @BORDER@;
+    border-radius: @BADGE_RADIUS@px;
+    color: @PRIMARY_TEXT@;
+    padding: 4px 8px;
 }
 
 QCheckBox {
@@ -182,7 +253,7 @@ QCheckBox {
 QCheckBox::indicator {
     background: @SURFACE@;
     border: 1px solid @BORDER@;
-    border-radius: 3px;
+    border-radius: @RADIUS_BAR@px;
     height: 14px;
     width: 14px;
 }
@@ -192,16 +263,38 @@ QCheckBox::indicator:checked {
     border-color: @ACCENT@;
 }
 
+/* 禁用时不应看起来仍然"已开启"：置灰而不是保留强调色。 */
+QCheckBox::indicator:disabled {
+    background: @SECONDARY_SURFACE@;
+    border-color: @SEPARATOR@;
+}
+
+QCheckBox::indicator:checked:disabled {
+    background: @SEPARATOR@;
+    border-color: @SEPARATOR@;
+}
+
+QLineEdit#readOnlyField {
+    background: @SECONDARY_SURFACE@;
+    border-color: @SEPARATOR@;
+    color: @SECONDARY_TEXT@;
+}
+
+/* ---------------------------------------------------------------------------
+ * 5. Tables
+ * ------------------------------------------------------------------------ */
+
 QTableWidget, QTreeWidget, QListWidget {
     background: @SURFACE@;
     border: 1px solid @BORDER@;
     border-radius: @CONTROL_RADIUS@px;
     gridline-color: transparent;
+    alternate-background-color: @SURFACE@;
 }
 
 QTableWidget::item, QTreeWidget::item {
     border-bottom: 1px solid @SEPARATOR@;
-    padding: 8px 10px;
+    padding: 10px 12px;
 }
 
 QTableWidget::item:hover, QTreeWidget::item:hover {
@@ -219,14 +312,29 @@ QHeaderView::section {
     border-bottom: 1px solid @BORDER@;
     color: @SECONDARY_TEXT@;
     font-weight: 600;
-    min-height: 34px;
+    min-height: @TABLE_HEADER_HEIGHT@px;
     padding: 0 10px;
 }
 
-QScrollArea {
-    background: transparent;
-    border: none;
+/* Table containers: the surface owns the border, the table stays borderless. */
+QFrame#batchListSurface, QFrame#batchDetailListSurface, QFrame#allItemsListSurface,
+QFrame#pendingMaterialsListSurface, QFrame#templateListSurface,
+QFrame#settingsGroupSurface, QFrame#materialSection {
+    background: @SURFACE@;
+    border: 1px solid @SEPARATOR@;
+    border-radius: @CARD_RADIUS@px;
 }
+
+QTableWidget#batchTable, QTableWidget#batchDetailTable, QTableWidget#allItemsTable,
+QTableWidget#pendingMaterialsTable, QTableWidget#templateTable {
+    background: @SURFACE@;
+    border: none;
+    border-radius: @CARD_RADIUS@px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 6. Scrollbars and progress
+ * ------------------------------------------------------------------------ */
 
 QScrollBar:vertical {
     background: transparent;
@@ -235,19 +343,13 @@ QScrollBar:vertical {
 }
 
 QScrollBar::handle:vertical {
-    background: #C7C7CC;
-    border-radius: 4px;
+    background: @SCROLL_HANDLE@;
+    border-radius: @RADIUS_BAR@px;
     min-height: 28px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background: #AEAEB2;
-}
-
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-    background: transparent;
-    border: none;
+    background: @SCROLL_HANDLE_HOVER@;
 }
 
 QScrollBar:horizontal {
@@ -257,11 +359,17 @@ QScrollBar:horizontal {
 }
 
 QScrollBar::handle:horizontal {
-    background: #C7C7CC;
-    border-radius: 4px;
+    background: @SCROLL_HANDLE@;
+    border-radius: @RADIUS_BAR@px;
     min-width: 28px;
 }
 
+QScrollBar::handle:horizontal:hover {
+    background: @SCROLL_HANDLE_HOVER@;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal,
 QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
     background: transparent;
@@ -271,7 +379,7 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
 QProgressBar {
     background: @SEPARATOR@;
     border: none;
-    border-radius: 4px;
+    border-radius: @RADIUS_BAR@px;
     color: transparent;
     max-height: 8px;
     min-height: 8px;
@@ -279,144 +387,72 @@ QProgressBar {
 
 QProgressBar::chunk {
     background: @ACCENT@;
-    border-radius: 4px;
+    border-radius: @RADIUS_BAR@px;
 }
 
-/* UI-2: compact Dashboard workbench. */
-QLabel#pageTitle, QLabel#templatePageTitle {
+QProgressBar[semantic="success"]::chunk {
+    background: @SUCCESS@;
+}
+
+/* ---------------------------------------------------------------------------
+ * 7. Typography helpers
+ * ------------------------------------------------------------------------ */
+
+QLabel#pageTitle, QLabel#templatePageTitle, QLabel#itemDetailName {
     background: transparent;
     color: @PRIMARY_TEXT@;
     font-size: @PAGE_TITLE_SIZE@px;
     font-weight: 600;
 }
 
-QLabel#sectionTitle, QLabel#dialogSectionTitle,
-QLabel#mergedPaymentSectionTitle, QLabel#mergedPaymentResultTitle,
-QLabel#mergedPaymentSourceTitle, QLabel#itemDetailStatusTitle {
+QLabel#sectionTitle, QLabel#dialogSectionTitle, QLabel#mergedPaymentSectionTitle,
+QLabel#emptyStateTitle,
+QLabel#settingsSectionTitle {
     background: transparent;
     color: @PRIMARY_TEXT@;
     font-size: @SECTION_TITLE_SIZE@px;
     font-weight: 600;
 }
 
-QLabel#emptyStateTitle {
+/* 材料卡标题是分区内的小标题，必须低于页面级「材料」标题一级。 */
+QLabel#materialSectionTitle {
     background: transparent;
     color: @PRIMARY_TEXT@;
-    font-size: @SECTION_TITLE_SIZE@px;
+    font-size: @BODY_SIZE@px;
     font-weight: 600;
-}
-
-QFrame#dashboardStatCard, QFrame#dashboardPendingItem {
-    background: @SURFACE@;
-    border: 1px solid @BORDER@;
-    border-radius: @CARD_RADIUS@px;
 }
 
 QLabel#dashboardPageSubtitle, QLabel#dashboardPendingSummary,
-QLabel#dashboardStatHint, QLabel#dashboardProgressLabel {
+QLabel#dashboardProgressLabel,
+QLabel#pendingMaterialsSubtitle, QLabel#batchListSubtitle, QLabel#allItemsSubtitle,
+QLabel#templatePageSubtitle, QLabel#settingsPageSubtitle,
+QLabel#settingsSectionDescription, QLabel#settingsRowDetail,
+QLabel#dashboardItemBatch, QLabel#pendingMaterialsSummary,
+QLabel#batchDetailSummary, QLabel#emptyStateDescription, QLabel#dialogHint,
+QLabel#mergedPaymentSourceFilename, QLabel#itemDetailStatusText,
+QLabel#mergedPaymentSectionDescription, QLabel#mergedPaymentEmpty,
+QLabel#batchDetailMetricTitle, QLabel#batchDetailWorkflowSummary,
+QLabel#materialAttachmentCount,
+QLabel#itemDetailMetadataPrimary, QLabel#itemDetailMetadataSecondary,
+QLabel#itemDetailStatusLabel {
     background: transparent;
     color: @SECONDARY_TEXT@;
     font-size: @SECONDARY_SIZE@px;
 }
 
-QLabel#pendingMaterialsSubtitle {
-    background: transparent;
-    color: @SECONDARY_TEXT@;
-    font-size: @SECONDARY_SIZE@px;
-}
-
-QFrame#pendingMaterialsListSurface {
-    background: @SURFACE@;
-    border: 1px solid #E5E5EA;
-    border-radius: @CARD_RADIUS@px;
-}
-
-QTableWidget#pendingMaterialsTable {
-    background: @SURFACE@;
-    border: none;
-    border-radius: @CARD_RADIUS@px;
-    alternate-background-color: @SURFACE@;
-}
-
-QTableWidget#pendingMaterialsTable::item {
-    border-bottom: 1px solid #E5E5EA;
-    padding: 10px 12px;
-}
-
-QTableWidget#pendingMaterialsTable::item:hover {
-    background: @SECONDARY_SURFACE@;
-}
-
-QTableWidget#pendingMaterialsTable::item:selected {
-    background: #E5F1FF;
-    color: @PRIMARY_TEXT@;
-}
-
-QLabel#batchListSubtitle {
-    background: transparent;
-    color: @SECONDARY_TEXT@;
-    font-size: @SECONDARY_SIZE@px;
-}
-
-QFrame#batchListSurface {
-    background: @SURFACE@;
-    border: 1px solid #E5E5EA;
-    border-radius: @CARD_RADIUS@px;
-}
-
-QTableWidget#batchTable {
-    background: @SURFACE@;
-    border: none;
-    border-radius: @CARD_RADIUS@px;
-    alternate-background-color: @SURFACE@;
-}
-
-QTableWidget#batchTable::item {
-    border-bottom: 1px solid #E5E5EA;
-    padding: 10px 12px;
-}
-
-QTableWidget#batchTable::item:hover {
-    background: #F2F2F7;
-}
-
-QTableWidget#batchTable::item:selected {
-    background: #E5F1FF;
-    color: @PRIMARY_TEXT@;
-}
-
-QLabel#dashboardStatValue {
+QLabel#dashboardItemName, QLabel#settingsRowTitle,
+QLabel#attachmentFilename {
     background: transparent;
     color: @PRIMARY_TEXT@;
-    font-size: 28px;
+    font-size: @BODY_SIZE@px;
     font-weight: 600;
 }
 
-QLabel#dashboardStatValue[semantic="accent"] {
-    color: @ACCENT@;
-}
-
-QLabel#dashboardStatValue[semantic="success"] {
-    color: @SUCCESS@;
-}
-
-QLabel#dashboardStatValue[semantic="warning"] {
-    color: @WARNING@;
-}
-
-QLabel#dashboardStatTitle, QLabel#dashboardItemBatch,
-QLabel#pendingMaterialsSummary, QLabel#batchDetailSummary,
-QLabel#emptyStateDescription, QLabel#dialogHint,
-QLabel#mergedPaymentSourceFilename, QLabel#itemDetailStatusText {
+/* 支付凭证三个槽位的标题：低一级的说明文字，不与分区标题争。 */
+QLabel#mergedPaymentResultTitle, QLabel#mergedPaymentSourceTitle {
     background: transparent;
     color: @SECONDARY_TEXT@;
     font-size: @SECONDARY_SIZE@px;
-}
-
-QLabel#dashboardItemName {
-    background: transparent;
-    color: @PRIMARY_TEXT@;
-    font-size: 14px;
     font-weight: 600;
 }
 
@@ -432,579 +468,49 @@ QLabel#dashboardProgressValue {
     font-weight: 600;
 }
 
-QProgressBar#dashboardCollectionProgress, QProgressBar#dashboardSubmissionProgress {
-    background: #E5E5EA;
-    border: none;
-    border-radius: 4px;
-    max-height: 7px;
-    min-height: 7px;
-}
-
-QProgressBar#dashboardCollectionProgress::chunk {
-    background: @ACCENT@;
-    border-radius: 4px;
-}
-
-QProgressBar#dashboardSubmissionProgress::chunk {
-    background: @ACCENT@;
-    border-radius: 4px;
-}
-
-QProgressBar#dashboardCollectionProgress[semantic="success"]::chunk,
-QProgressBar#dashboardSubmissionProgress[semantic="success"]::chunk {
-    background: @SUCCESS@;
-}
-
-QLabel#dashboardMissing, QLabel#mergedPaymentEmpty, QLabel#mergedPaymentSourceMissing,
-QLabel#mergedPaymentSourceUnsupported {
-    background: #fff5e8;
-    border: 1px solid #f2d5a8;
-    border-radius: @BADGE_RADIUS@px;
-    color: #9A5B00;
-    min-height: 20px;
-    padding: 2px 6px;
-}
-
-QPushButton#dashboardItemDetailButton {
+QLabel#dashboardStatValue {
     background: transparent;
-    border: none;
-    color: @ACCENT@;
+    color: @PRIMARY_TEXT@;
+    font-size: @METRIC_SIZE@px;
     font-weight: 600;
-    min-height: 24px;
-    padding: 0 2px;
 }
 
-QPushButton#dashboardItemDetailButton:hover {
-    background: transparent;
-    color: @ACCENT_HOVER@;
-}
-
-QPushButton#dashboardItemDetailButton:disabled {
-    background: transparent;
-    color: @TERTIARY_TEXT@;
-}
-
-QLabel#dashboardStateChip {
-    border-radius: @BADGE_RADIUS@px;
-    font-size: @SECONDARY_SIZE@px;
-    min-height: 20px;
-    padding: 1px 7px;
-}
-
-QLabel#dashboardStateChip[status="incomplete"] {
-    background: @WARNING_SURFACE@;
-    border: 1px solid @WARNING_BORDER@;
+/* Only the outstanding count speaks in colour; the other three are neutral. */
+QLabel#dashboardStatValue[semantic="warning"] {
     color: @WARNING_TEXT@;
 }
 
-QLabel#dashboardStateChip[status="pending_payment"] {
-    background: @SELECTED_SURFACE@;
-    border: 1px solid @SELECTED_BORDER@;
-    color: @ACCENT@;
-}
-
-QLabel#attachmentPdfBadge, QLabel#attachmentFileBadge {
-    background: #e8eff8;
-    border: 1px solid #d8e5f8;
-    border-radius: @BADGE_RADIUS@px;
-    color: @ACCENT@;
-    font-weight: 600;
-    min-height: 20px;
-    padding: 2px 6px;
-}
-
-QLabel#successBadge {
-    background: #E9F9EE;
-    border: 1px solid #A9E6B8;
-    border-radius: @BADGE_RADIUS@px;
-    color: #248A3D;
-    min-height: 20px;
-    padding: 2px 6px;
-}
-
-QLabel#warningBadge {
-    background: #FFF5E6;
-    border: 1px solid #FFD49A;
-    border-radius: @BADGE_RADIUS@px;
-    color: #9A5B00;
-    min-height: 20px;
-    padding: 2px 6px;
-}
-
-QLabel#dangerBadge {
-    background: #FFF0EF;
-    border: 1px solid #FFB7B1;
-    border-radius: @BADGE_RADIUS@px;
-    color: @DANGER@;
-    min-height: 20px;
-    padding: 2px 6px;
-}
-
-QLabel#dashboardEmptyState, QFrame#batchListEmptyState,
-QFrame#batchDetailEmptyState, QFrame#allItemsEmptyState,
-QFrame#pendingMaterialsEmptyState, QFrame#templateEmptyState {
-    background: @SURFACE@;
-    border: 1px dashed @BORDER@;
-    border-radius: @CARD_RADIUS@px;
-    color: @SECONDARY_TEXT@;
-    padding: 24px;
-}
-
-/* UI-10: shared form, confirmation, and template-management treatment. */
-QDialog#standardDialog, QMessageBox#standardMessageDialog {
-    background: @APP_BACKGROUND@;
-}
-
-QMessageBox {
-    background: @APP_BACKGROUND@;
-}
-
-QMessageBox QLabel {
-    background: transparent;
-}
-
-QLabel#dialogTitle {
-    background: transparent;
+QLabel#dashboardStatValue[semantic="secondary"] {
     color: @PRIMARY_TEXT@;
-    font-size: @SECTION_TITLE_SIZE@px;
-    font-weight: 600;
-}
-
-QLabel#dialogFieldGroupTitle {
-    background: transparent;
-    color: @SECONDARY_TEXT@;
-    font-size: @SECONDARY_SIZE@px;
-    font-weight: 600;
-    padding-top: 4px;
-}
-
-QLineEdit#readOnlyField {
-    background: @SECONDARY_SURFACE@;
-    border-color: @SEPARATOR@;
-    color: @SECONDARY_TEXT@;
-}
-
-QDialog#standardDialog QDialogButtonBox {
-    background: transparent;
-}
-
-QDialog#standardDialog QDialogButtonBox QPushButton,
-QMessageBox#standardMessageDialog QPushButton {
-    min-width: 78px;
-}
-
-QDialog#standardDialog QFormLayout QLabel {
-    background: transparent;
-    color: @SECONDARY_TEXT@;
-}
-
-QDialog#standardDialog QLineEdit, QDialog#standardDialog QComboBox {
-    min-height: 30px;
-}
-
-QDialog#standardDialog QTextEdit {
-    min-height: 70px;
-}
-
-QFrame#templateMaterialList {
-    background: @SURFACE@;
-    border: 1px solid @BORDER@;
-    border-radius: @CARD_RADIUS@px;
-}
-
-/* Update dialog: release notes are read-only body text, not an editor. */
-QTextBrowser#updateNotes {
-    background: @SURFACE@;
-    border: 1px solid @BORDER@;
-    border-radius: @CARD_RADIUS@px;
-    color: @SECONDARY_TEXT@;
-    padding: 8px 10px;
-    selection-background-color: @SELECTED_SURFACE@;
-}
-
-QProgressBar#updateProgress {
-    min-height: 8px;
-    max-height: 8px;
-    border: none;
-    border-radius: 4px;
-    background: @HOVER_SURFACE@;
-}
-
-QProgressBar#updateProgress::chunk {
-    border-radius: 4px;
-    background: @ACCENT@;
-}
-
-QFrame#templateMaterialList QCheckBox {
-    background: transparent;
-    min-height: 28px;
-}
-
-/* Template editor: let the material list grow without stretching the dialog. */
-QScrollArea#templateMaterialScroll,
-QScrollArea#templateMaterialScroll QWidget#qt_scrollarea_viewport {
-    background: transparent;
-    border: none;
-}
-
-QPushButton#templateAddMaterialButton {
-    background: transparent;
-    border: 1px dashed @SELECTED_BORDER@;
-    color: @ACCENT@;
-    font-weight: 600;
-}
-
-QPushButton#templateAddMaterialButton:hover {
-    background: @HOVER_SURFACE@;
-    border-color: @ACCENT@;
-}
-
-QPushButton#templateAddMaterialButton:pressed {
-    background: @SELECTED_SURFACE@;
-}
-
-/* iOS-11: templates, settings, and desktop modal dialogs share light grouped surfaces. */
-QLabel#templatePageSubtitle, QLabel#settingsPageSubtitle,
-QLabel#settingsSectionDescription, QLabel#settingsRowDetail {
-    background: transparent;
-    color: @SECONDARY_TEXT@;
-    font-size: @SECONDARY_SIZE@px;
-}
-
-QFrame#templateListSurface, QFrame#settingsGroupSurface {
-    background: @SURFACE@;
-    border: 1px solid #E5E5EA;
-    border-radius: @CARD_RADIUS@px;
-}
-
-QTableWidget#templateTable {
-    background: @SURFACE@;
-    border: none;
-    border-radius: @CARD_RADIUS@px;
-}
-
-QTableWidget#templateTable::item {
-    border-bottom: 1px solid #E5E5EA;
-    padding: 10px 12px;
-}
-
-QTableWidget#templateTable::item:hover {
-    background: @SECONDARY_SURFACE@;
-}
-
-QTableWidget#templateTable::item:selected {
-    background: #E5F1FF;
-    color: @PRIMARY_TEXT@;
-}
-
-QLabel#settingsSectionTitle, QLabel#settingsRowTitle {
-    background: transparent;
-    color: @PRIMARY_TEXT@;
-    font-weight: 600;
-}
-
-QLabel#settingsSectionTitle {
-    font-size: @SECTION_TITLE_SIZE@px;
-}
-
-QLabel#settingsRowTitle {
-    font-size: @BODY_SIZE@px;
-}
-
-QLabel#backupResult, QLabel#restoreResult {
-    background: @SECONDARY_SURFACE@;
-    border: 1px solid #E5E5EA;
-    border-radius: @BADGE_RADIUS@px;
-    color: @SECONDARY_TEXT@;
-    padding: 8px;
-}
-
-/* UI-4: compact batch context and item work area. */
-QPushButton#batchDetailBackButton {
-    background: transparent;
-    border: none;
-    color: #235b9f;
-    min-height: 24px;
-    padding: 0;
-}
-
-QPushButton#batchDetailBackButton:hover {
-    background: transparent;
-    color: #1f4f86;
-}
-
-/* iOS-5: Batch Detail uses compact grouped surfaces for overview and workflow. */
-QFrame#batchDetailOverview, QFrame#batchDetailWorkflow, QFrame#batchDetailListSurface {
-    background: @SURFACE@;
-    border: 1px solid @BORDER@;
-    border-radius: @CARD_RADIUS@px;
-}
-
-QLabel#batchDetailMetricTitle, QLabel#batchDetailWorkflowSummary {
-    background: transparent;
-    color: @SECONDARY_TEXT@;
-    font-size: @SECONDARY_SIZE@px;
 }
 
 QLabel#batchDetailMetricValue {
     background: transparent;
     color: @PRIMARY_TEXT@;
-    font-size: 20px;
+    font-size: @SECTION_TITLE_SIZE@px;
     font-weight: 600;
 }
 
-QLabel#batchDetailWorkflowBadge {
-    background: #E8F1FF;
-    border: 1px solid #B9DAFF;
-    border-radius: @BADGE_RADIUS@px;
-    color: @ACCENT@;
-    font-weight: 600;
-    min-height: 20px;
-    padding: 1px 6px;
-}
-
-QLabel#batchDetailWorkflowBadge[status="reimbursed"] {
-    background: #E9F9EE;
-    border-color: #A9E6B8;
-    color: #248A3D;
-}
-
-QLabel#batchDetailWorkflowBadge[status="archived"] {
-    background: #F2F2F7;
-    border-color: @BORDER@;
-    color: @SECONDARY_TEXT@;
-}
-
-QTableWidget#batchDetailTable {
-    background: @SURFACE@;
-    border: none;
-    border-radius: @CARD_RADIUS@px;
-}
-
-QTableWidget#batchDetailTable::item {
-    border-bottom: 1px solid #E5E5EA;
-    padding: 0 8px;
-}
-
-QTableWidget#batchDetailTable::item:hover {
-    background: @SECONDARY_SURFACE@;
-}
-
-QTableWidget#batchDetailTable::item:selected {
-    background: #E5F1FF;
-    color: @PRIMARY_TEXT@;
-}
-
-QFrame#batchDetailDangerArea {
-    background: #FFFAFA;
-    border: 1px solid #F0D9D6;
-    border-radius: @CARD_RADIUS@px;
-}
-
-/* iOS-6: All Items remains information-dense inside a grouped list surface. */
-QLineEdit#allItemsSearchInput {
-    background: @SECONDARY_SURFACE@;
-    border: 1px solid transparent;
-    border-radius: @CONTROL_RADIUS@px;
-    min-height: 28px;
-    padding: 5px 10px;
-}
-
-QLineEdit#allItemsSearchInput:focus {
-    background: @SURFACE@;
-    border: 2px solid @ACCENT@;
-}
-
-QLabel#allItemsSubtitle {
-    background: transparent;
-    color: @SECONDARY_TEXT@;
-    font-size: @SECONDARY_SIZE@px;
-}
-
-QFrame#allItemsListSurface {
-    background: @SURFACE@;
-    border: 1px solid #E5E5EA;
-    border-radius: @CARD_RADIUS@px;
-}
-
-QTableWidget#allItemsTable {
-    background: @SURFACE@;
-    border: none;
-    border-radius: @CARD_RADIUS@px;
-}
-
-QTableWidget#allItemsTable::item {
-    border-bottom: 1px solid #E5E5EA;
-    padding: 8px 12px;
-}
-
-QTableWidget#allItemsTable::item:hover {
-    background: @SECONDARY_SURFACE@;
-}
-
-QTableWidget#allItemsTable::item:selected {
-    background: #E5F1FF;
-    color: @PRIMARY_TEXT@;
-}
-
-QLabel#allItemsWorkflowBadge {
-    background: #E8F1FF;
-    border: 1px solid #B9DAFF;
-    border-radius: @BADGE_RADIUS@px;
-    color: @ACCENT@;
-    font-size: @SECONDARY_SIZE@px;
-    font-weight: 600;
-    min-height: 20px;
-    padding: 1px 6px;
-}
-
-QLabel#allItemsWorkflowBadge[status="reimbursed"] {
-    background: #E9F9EE;
-    border-color: #A9E6B8;
-    color: #248A3D;
-}
-
-QLabel#allItemsWorkflowBadge[status="archived"] {
-    background: @SECONDARY_SURFACE@;
-    border-color: @BORDER@;
-    color: @SECONDARY_TEXT@;
-}
-
-/* UI-9: pending materials keep source collection and submission readiness distinct. */
-/* UI-6: Item Detail information hierarchy and material sections. */
-QScrollArea#itemDetailScrollArea, QScrollArea#dashboardPendingArea,
-QScrollArea#settingsScrollArea {
-    background: transparent;
-    border: none;
-}
-
-QScrollArea#itemDetailScrollArea QWidget#qt_scrollarea_viewport,
-QScrollArea#dashboardPendingArea QWidget#qt_scrollarea_viewport,
-QScrollArea#settingsScrollArea QWidget#qt_scrollarea_viewport {
-    background: @APP_BACKGROUND@;
-}
-
-QWidget#itemDetailContent {
-    background: @APP_BACKGROUND@;
-}
-
-QWidget#settingsContent {
-    background: @APP_BACKGROUND@;
-}
-
-QPushButton#itemDetailBackButton {
-    background: transparent;
-    border: none;
-    color: @ACCENT@;
-    min-height: 24px;
-    padding: 0;
-}
-
-QPushButton#itemDetailBackButton:hover {
-    background: transparent;
-    color: @ACCENT_HOVER@;
-}
-
-QLabel#itemDetailName {
+QLabel#itemDetailAmount {
     background: transparent;
     color: @PRIMARY_TEXT@;
     font-size: @PAGE_TITLE_SIZE@px;
     font-weight: 600;
 }
 
-QLabel#itemDetailAmount {
-    background: transparent;
-    color: @ACCENT@;
-    font-size: 20px;
-    font-weight: 600;
-}
-
-QFrame#itemDetailMetadata, QFrame#itemDetailWorkflowCard,
-QFrame#itemDetailStatusCard {
-    background: @SURFACE@;
-    border: 1px solid @BORDER@;
-    border-radius: @CARD_RADIUS@px;
-}
-
-QFrame#itemDetailMetadata QLabel {
-    background: transparent;
-}
-
-QLabel#itemDetailMetadataPrimary {
-    background: transparent;
-    color: @SECONDARY_TEXT@;
-    font-size: @BODY_SIZE@px;
-}
-
-QLabel#itemDetailMetadataSecondary {
-    background: transparent;
-    color: @SECONDARY_TEXT@;
-    font-size: @SECONDARY_SIZE@px;
-}
-
 QLabel#itemDetailStatusValue {
     background: transparent;
     color: @PRIMARY_TEXT@;
-    font-size: 20px;
+    font-size: @SECTION_TITLE_SIZE@px;
     font-weight: 600;
 }
 
-QLabel#itemDetailWorkflowBadge {
-    background: @SECONDARY_SURFACE@;
-    border: 1px solid @BORDER@;
-    border-radius: @BADGE_RADIUS@px;
-    color: @WARNING@;
-    font-size: @SECONDARY_SIZE@px;
-    font-weight: 600;
-    min-height: 20px;
-    padding: 1px 6px;
-}
-
-QLabel#itemDetailWorkflowBadge[status="submitted"] {
-    color: @ACCENT@;
-}
-
-QLabel#itemDetailWorkflowBadge[status="reimbursed"] {
-    color: @SUCCESS@;
-}
-
-QLabel#itemDetailWorkflowBadge[status="archived"] {
+/* 合并关系的连接符：装饰性，不与内容争色。 */
+QLabel#mergedPaymentRelation, QLabel#mergedPaymentFlow {
+    background: transparent;
     color: @TERTIARY_TEXT@;
-}
-
-QProgressBar#itemDetailProgress {
-    background: #E5E5EA;
-    border: none;
-    border-radius: 3px;
-    max-height: 6px;
-    min-height: 6px;
-}
-
-QProgressBar#itemDetailProgress::chunk {
-    background: @ACCENT@;
-    border-radius: 3px;
-}
-
-QProgressBar#itemDetailProgress[semantic="success"]::chunk {
-    background: @SUCCESS@;
-}
-
-QPushButton#itemDetailExportButton {
-    background: @SECONDARY_SURFACE@;
-    border-color: @BORDER@;
-    color: @ACCENT@;
+    font-size: @SECTION_TITLE_SIZE@px;
     font-weight: 600;
-}
-
-QPushButton#itemDetailExportButton:hover {
-    background: @HOVER_SURFACE@;
-    border-color: @SELECTED_BORDER@;
-}
-
-QPushButton#itemDetailExportButton:disabled {
-    background: @SECONDARY_SURFACE@;
-    border-color: @SEPARATOR@;
-    color: @TERTIARY_TEXT@;
 }
 
 QLabel#actionHint {
@@ -1013,251 +519,24 @@ QLabel#actionHint {
     font-size: @SECONDARY_SIZE@px;
 }
 
-/* iOS-9: payment evidence presents the two merge inputs and final result. */
-QFrame#mergedPaymentSection {
-    background: @SURFACE@;
-    border: 1px solid @BORDER@;
-    border-radius: @CARD_RADIUS@px;
-}
-
-QFrame#mergeOrderSource, QFrame#mergePaymentSource, QFrame#mergedPaymentResult {
-    background: @SECONDARY_SURFACE@;
-    border: 1px solid transparent;
-    border-radius: @CARD_RADIUS@px;
-}
-
-QLabel#mergedPaymentSectionTitle {
-    background: transparent;
-    color: @PRIMARY_TEXT@;
-    font-size: @SECTION_TITLE_SIZE@px;
-    font-weight: 600;
-}
-
-QLabel#mergedPaymentResultTitle, QLabel#mergedPaymentSourceTitle {
-    background: transparent;
-    color: @PRIMARY_TEXT@;
-    font-size: @BODY_SIZE@px;
-    font-weight: 600;
-}
-
-QLabel#mergedPaymentSectionDescription, QLabel#mergedPaymentSourceFilename, QLabel#mergedPaymentEmpty {
-    background: transparent;
-    color: @SECONDARY_TEXT@;
-    font-size: @SECONDARY_SIZE@px;
-}
-
-QLabel#mergedPaymentRelation, QLabel#mergedPaymentFlow {
-    background: transparent;
-    color: @ACCENT@;
-    font-size: 15px;
-    font-weight: 600;
-}
-
-QLabel#mergedPaymentSourceMissing, QLabel#mergedPaymentSourceUnsupported {
-    background: #FFF7E8;
-    border: 1px solid #FFE0AD;
-    border-radius: @BADGE_RADIUS@px;
-    color: #B36B00;
-    font-size: @SECONDARY_SIZE@px;
-    font-weight: 600;
-    padding: 4px 7px;
-}
-
-/* iOS-8: Material sections use grouped surfaces; attachment cards stay secondary. */
-QWidget#itemDetailMaterials, QWidget#attachmentGrid {
-    background: transparent;
-}
-
-QFrame#materialSection {
-    background: @SURFACE@;
-    border: 1px solid #E5E5EA;
-    border-radius: @CARD_RADIUS@px;
-}
-
-QFrame#materialSection[dropActive="true"] {
-    background: @SELECTED_SURFACE@;
-    border-color: @ACCENT@;
-}
-
-QLabel#materialSectionTitle {
-    background: transparent;
-    color: @PRIMARY_TEXT@;
-    font-size: @SECTION_TITLE_SIZE@px;
-    font-weight: 600;
-}
-
-QLabel#materialRequirementBadge {
-    background: #E5F1FF;
-    border: 1px solid #C9E2FF;
-    border-radius: @BADGE_RADIUS@px;
-    color: @ACCENT@;
-    font-size: 12px;
-    font-weight: 600;
-    padding: 2px 7px;
-}
-
-QLabel#materialRequirementBadge[kind="optional"] {
-    background: @SECONDARY_SURFACE@;
-    border-color: #E5E5EA;
-    color: @SECONDARY_TEXT@;
-}
-
-QLabel#materialAttachmentCount, QLabel#materialOptionalState {
-    background: transparent;
-    color: @SECONDARY_TEXT@;
-    font-size: 13px;
-}
-
-QLabel#materialDropHint {
-    background: transparent;
-    color: @SECONDARY_TEXT@;
-    font-size: 12px;
-}
-
-QLabel#materialMissingState {
-    background: #FFF7E8;
-    border: 1px solid #FFE0AD;
-    border-radius: @BADGE_RADIUS@px;
-    color: #B36B00;
-    font-weight: 600;
-    padding: 4px 7px;
-}
-
-QPushButton#itemDetailAddAttachmentButton {
-    background: transparent;
-    border: none;
-    color: @ACCENT@;
-    font-weight: 600;
-    min-height: 24px;
-    padding: 0 2px;
-}
-
-QPushButton#itemDetailAddAttachmentButton:hover {
-    color: #0066D6;
-}
-
-QFrame#attachmentCard {
-    background: @SECONDARY_SURFACE@;
-    border: 1px solid #E5E5EA;
-    border-radius: 12px;
-}
-
-QFrame#attachmentCard:hover {
-    background: #EAF3FF;
-    border-color: #C9E2FF;
-}
-
-QPushButton#attachmentThumbnail {
-    background: @SECONDARY_SURFACE@;
-    border: 1px solid @BORDER@;
-    border-radius: @BADGE_RADIUS@px;
-    padding: 0;
-}
-
-QPushButton#attachmentThumbnail:hover {
-    border-color: @ACCENT@;
-    background: #E5F1FF;
-}
-
-QLabel#attachmentFilename {
-    background: transparent;
-    color: @PRIMARY_TEXT@;
-    font-weight: 600;
-}
-
-QWidget#attachmentActions {
-    background: transparent;
-}
-
-QPushButton#attachmentTextAction, QPushButton#attachmentDangerAction {
-    background: transparent;
-    border: none;
-    min-height: 22px;
-    padding: 0;
-}
-
-QPushButton#attachmentTextAction {
-    color: @ACCENT@;
-}
-
-QPushButton#attachmentTextAction:hover {
-    color: #0066D6;
-}
-
-QPushButton#attachmentDangerAction {
-    color: @DANGER@;
-}
-
-QPushButton#attachmentDangerAction:hover {
-    color: #CC2F27;
-}
-
-QLabel#attachmentMissingFile {
-    background: #fff3f2;
-    border: 1px solid #f0d9d6;
-    border-radius: @BADGE_RADIUS@px;
-    color: @DANGER@;
-    font-weight: 600;
-    min-height: 20px;
-    padding: 2px 6px;
-}
-
-QFrame#itemDetailDangerZone {
-    background: #fffafa;
-    border: 1px solid #f0d9d6;
-    border-radius: @CARD_RADIUS@px;
-    color: #7d4b47;
-}
-
-/* iOS-12: common component treatment keeps all existing pages in one system. */
-QFrame#pendingMaterialsListSurface, QFrame#batchListSurface,
-QFrame#templateListSurface, QFrame#allItemsListSurface,
-QFrame#materialSection {
-    border-color: @SEPARATOR@;
-}
-
-QTableWidget#pendingMaterialsTable::item, QTableWidget#batchTable::item,
-QTableWidget#templateTable::item, QTableWidget#allItemsTable::item,
-QTableWidget#batchDetailTable::item {
-    border-bottom-color: @SEPARATOR@;
-    padding: 10px 12px;
-}
-
-QTableWidget#pendingMaterialsTable::item:selected,
-QTableWidget#batchTable::item:selected,
-QTableWidget#templateTable::item:selected,
-QTableWidget#allItemsTable::item:selected,
-QTableWidget#batchDetailTable::item:selected {
-    background: @SELECTED_SURFACE@;
-}
-
-QProgressBar#dashboardCollectionProgress, QProgressBar#dashboardSubmissionProgress,
-QProgressBar#itemDetailProgress {
-    background: @SEPARATOR@;
-    border-radius: 4px;
-    max-height: 7px;
-    min-height: 7px;
-}
-
-QProgressBar#dashboardCollectionProgress::chunk,
-QProgressBar#dashboardSubmissionProgress::chunk,
-QProgressBar#itemDetailProgress::chunk {
-    border-radius: 4px;
-}
+/* ---------------------------------------------------------------------------
+ * 8. Status badges
+ * ------------------------------------------------------------------------ */
 
 QLabel#batchDetailWorkflowBadge, QLabel#allItemsWorkflowBadge,
-QLabel#itemDetailWorkflowBadge, QLabel#successBadge, QLabel#warningBadge,
-QLabel#dangerBadge, QLabel#attachmentPdfBadge, QLabel#attachmentFileBadge,
-QLabel#materialRequirementBadge, QLabel#dashboardMissing,
-QLabel#mergedPaymentEmpty, QLabel#mergedPaymentSourceMissing,
-QLabel#mergedPaymentSourceUnsupported, QLabel#materialMissingState,
-QLabel#attachmentMissingFile {
+QLabel#itemDetailWorkflowBadge, QLabel#dashboardStateChip,
+QLabel#successBadge, QLabel#warningBadge, QLabel#dangerBadge,
+QLabel#attachmentPdfBadge, QLabel#attachmentFileBadge,
+QLabel#materialRequirementBadge, QLabel#materialMissingState,
+QLabel#attachmentMissingFile,
+QLabel#mergedPaymentSourceMissing, QLabel#mergedPaymentSourceUnsupported {
     border-radius: @BADGE_RADIUS@px;
     font-size: @SECONDARY_SIZE@px;
     min-height: 22px;
     padding: 2px 8px;
 }
 
+/* Workflow status — one vocabulary for every page. */
 QLabel#batchDetailWorkflowBadge, QLabel#allItemsWorkflowBadge,
 QLabel#itemDetailWorkflowBadge {
     background: @WARNING_SURFACE@;
@@ -1313,24 +592,360 @@ QLabel#itemDetailWorkflowBadge[status="archived"] {
     color: @SECONDARY_TEXT@;
 }
 
+QLabel#dashboardStateChip[status="incomplete"] {
+    background: @WARNING_SURFACE@;
+    border: 1px solid @WARNING_BORDER@;
+    color: @WARNING_TEXT@;
+}
+
+QLabel#dashboardStateChip[status="pending_payment"] {
+    background: @SELECTED_SURFACE@;
+    border: 1px solid @SELECTED_BORDER@;
+    color: @ACCENT@;
+}
+
 QLabel#successBadge {
     background: @SUCCESS_SURFACE@;
-    border-color: @SUCCESS_BORDER@;
+    border: 1px solid @SUCCESS_BORDER@;
     color: @SUCCESS_TEXT@;
 }
 
-QLabel#warningBadge, QLabel#dashboardMissing, QLabel#mergedPaymentEmpty,
-QLabel#mergedPaymentSourceMissing, QLabel#mergedPaymentSourceUnsupported,
-QLabel#materialMissingState {
-    background: @WARNING_SURFACE@;
-    border-color: @WARNING_BORDER@;
+QLabel#warningBadge, QLabel#materialMissingState,
+QLabel#mergedPaymentSourceMissing, QLabel#mergedPaymentSourceUnsupported {
+    background: @WARNING_SURFACE_SOFT@;
+    border: 1px solid @WARNING_BORDER_SOFT@;
     color: @WARNING_TEXT@;
 }
 
 QLabel#dangerBadge, QLabel#attachmentMissingFile {
     background: @DANGER_SURFACE@;
-    border-color: @DANGER_BORDER@;
+    border: 1px solid @DANGER_BORDER@;
     color: @DANGER@;
+}
+
+QLabel#attachmentPdfBadge, QLabel#attachmentFileBadge {
+    background: @INFO_SURFACE@;
+    border: 1px solid @INFO_BORDER@;
+    color: @ACCENT@;
+    font-weight: 600;
+}
+
+/* 必需/可选是分类标签，不是状态：一律保持中性，把彩色留给状态。 */
+QLabel#materialRequirementBadge,
+QLabel#materialRequirementBadge[kind="optional"] {
+    background: @SECONDARY_SURFACE@;
+    border: 1px solid @SEPARATOR@;
+    color: @SECONDARY_TEXT@;
+    font-size: @BADGE_SIZE@px;
+    font-weight: 600;
+    padding: 2px 7px;
+}
+
+/* 材料卡的三种状态：已上传 / 待补充 / 暂无（可选但未提供）。 */
+QLabel#materialOptionalState {
+    background: @SECONDARY_SURFACE@;
+    border: 1px solid @SEPARATOR@;
+    border-radius: @BADGE_RADIUS@px;
+    color: @SECONDARY_TEXT@;
+    font-size: @BADGE_SIZE@px;
+    min-height: 20px;
+    padding: 1px 7px;
+}
+
+QLabel#materialAttachmentCount[uploaded="true"] {
+    color: @SUCCESS_TEXT@;
+}
+
+QLabel#materialMissingState,
+QLabel#mergedPaymentSourceMissing, QLabel#mergedPaymentSourceUnsupported {
+    font-weight: 600;
+    padding: 4px 7px;
+}
+
+/* Attention line on the Dashboard: warning text, not a banner. */
+QLabel#dashboardMissing {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    color: @WARNING_TEXT@;
+    font-size: @SECONDARY_SIZE@px;
+    min-height: 0;
+    padding: 0;
+}
+
+/* Nothing missing any more — the same line turns into a quiet confirmation. */
+QLabel#dashboardMissing[complete="true"] {
+    color: @SUCCESS_TEXT@;
+}
+
+/* ---------------------------------------------------------------------------
+ * 9. Empty states
+ * ------------------------------------------------------------------------ */
+
+QLabel#dashboardEmptyState, QFrame#batchListEmptyState,
+QFrame#batchDetailEmptyState, QFrame#allItemsEmptyState,
+QFrame#pendingMaterialsEmptyState, QFrame#templateEmptyState {
+    background: @SURFACE@;
+    border: 1px dashed @BORDER@;
+    border-radius: @CARD_RADIUS@px;
+    color: @SECONDARY_TEXT@;
+    padding: 24px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 10. Dashboard
+ * ------------------------------------------------------------------------ */
+
+QFrame#dashboardStatCard, QFrame#dashboardPendingItem {
+    background: @SURFACE@;
+    border: 1px solid @BORDER@;
+    border-radius: @CARD_RADIUS@px;
+}
+
+/* Statistic card: quiet label, one dominant number, one quiet footnote. */
+QLabel#dashboardStatTitle {
+    background: transparent;
+    color: @SECONDARY_TEXT@;
+    font-size: @SECONDARY_SIZE@px;
+    font-weight: 600;
+}
+
+QLabel#dashboardStatHint {
+    background: transparent;
+    color: @TERTIARY_TEXT@;
+    font-size: @BADGE_SIZE@px;
+}
+
+/* The attention list sits directly on the page, so its bars stay hairline. */
+QWidget#dashboardProgressBlock {
+    background: transparent;
+}
+
+QProgressBar#dashboardCollectionProgress,
+QProgressBar#dashboardSubmissionProgress {
+    max-height: 6px;
+    min-height: 6px;
+}
+
+QPushButton#dashboardItemDetailButton {
+    background: transparent;
+    border: none;
+    color: @ACCENT@;
+    font-weight: 600;
+    min-height: 24px;
+    padding: 0 2px;
+}
+
+QPushButton#dashboardItemDetailButton:hover {
+    background: transparent;
+    color: @ACCENT_HOVER@;
+}
+
+QPushButton#dashboardItemDetailButton:disabled {
+    background: transparent;
+    color: @TERTIARY_TEXT@;
+}
+
+/* ---------------------------------------------------------------------------
+ * 11. Batch list and batch detail
+ * ------------------------------------------------------------------------ */
+
+QPushButton#batchDetailBackButton {
+    background: transparent;
+    border: none;
+    color: @ACCENT@;
+    min-height: 24px;
+    padding: 0;
+}
+
+QPushButton#batchDetailBackButton:hover {
+    background: transparent;
+    color: @ACCENT_HOVER@;
+}
+
+QFrame#batchDetailOverview, QFrame#batchDetailWorkflow {
+    background: @SURFACE@;
+    border: 1px solid @BORDER@;
+    border-radius: @CARD_RADIUS@px;
+}
+
+QFrame#batchDetailDangerArea {
+    background: @DANGER_ZONE_SURFACE@;
+    border: 1px solid @DANGER_ZONE_BORDER@;
+    border-radius: @CARD_RADIUS@px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 12. All items
+ * ------------------------------------------------------------------------ */
+
+QLineEdit#allItemsSearchInput {
+    background: @SECONDARY_SURFACE@;
+    border: 1px solid transparent;
+    border-radius: @CONTROL_RADIUS@px;
+    min-height: 28px;
+    padding: 5px 10px;
+}
+
+QLineEdit#allItemsSearchInput:focus {
+    background: @SURFACE@;
+    border-color: @ACCENT@;
+}
+
+/* ---------------------------------------------------------------------------
+ * 13. Item detail
+ * ------------------------------------------------------------------------ */
+
+QPushButton#itemDetailBackButton {
+    background: transparent;
+    border: none;
+    color: @ACCENT@;
+    min-height: 24px;
+    padding: 0;
+}
+
+QPushButton#itemDetailBackButton:hover {
+    background: transparent;
+    color: @ACCENT_HOVER@;
+}
+
+QFrame#itemDetailStatusStrip {
+    background: @SURFACE@;
+    border: 1px solid @BORDER@;
+    border-radius: @CARD_RADIUS@px;
+}
+
+/* Blocks inside the strip are columns, not nested cards. */
+QFrame#itemDetailStatusBlock {
+    background: transparent;
+    border: none;
+}
+
+QFrame#itemDetailStatusDivider {
+    background: @SEPARATOR@;
+    border: none;
+}
+
+QProgressBar#itemDetailProgress {
+    max-height: 6px;
+    min-height: 6px;
+}
+
+QLabel#itemDetailStatusPercent {
+    background: transparent;
+    color: @TERTIARY_TEXT@;
+    font-size: @BADGE_SIZE@px;
+}
+
+/* 状态文本：缺材料用警示色，齐全用成功色，与首页保持同一套语义。 */
+QLabel#itemDetailStatusText[complete="false"] {
+    color: @WARNING_TEXT@;
+}
+
+QLabel#itemDetailStatusText[complete="true"] {
+    color: @SUCCESS_TEXT@;
+}
+
+QPushButton#itemDetailExportButton {
+    background: @SECONDARY_SURFACE@;
+    border-color: @BORDER@;
+    color: @ACCENT@;
+    font-weight: 600;
+}
+
+QPushButton#itemDetailExportButton:hover {
+    background: @HOVER_SURFACE@;
+    border-color: @SELECTED_BORDER@;
+}
+
+QPushButton#itemDetailExportButton:disabled {
+    background: @SECONDARY_SURFACE@;
+    border-color: @SEPARATOR@;
+    color: @TERTIARY_TEXT@;
+}
+
+QFrame#itemDetailDangerZone, QFrame#settingsDangerSurface {
+    background: @DANGER_ZONE_SURFACE@;
+    border: 1px solid @DANGER_ZONE_BORDER@;
+    border-radius: @CARD_RADIUS@px;
+    color: @DANGER_TEXT@;
+}
+
+/* 两个危险区共用一个标题样式，避免深浅不一。 */
+QLabel#dangerZoneTitle {
+    background: transparent;
+    color: @DANGER_TEXT@;
+    font-size: @SECTION_TITLE_SIZE@px;
+    font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------------
+ * 14. Merged payment certificate
+ * ------------------------------------------------------------------------ */
+
+QFrame#mergedPaymentSection {
+    background: @SURFACE@;
+    border: 1px solid @BORDER@;
+    border-radius: @CARD_RADIUS@px;
+}
+
+/* 三个槽位直接落在分区白底上：不再在白色卡片里套灰色卡片。 */
+QFrame#mergeOrderSource, QFrame#mergePaymentSource, QFrame#mergedPaymentResult {
+    background: transparent;
+    border: none;
+}
+
+QLabel#mergedPaymentPlaceholder {
+    background: @SECONDARY_SURFACE@;
+    border: 1px dashed @BORDER@;
+    border-radius: @BADGE_RADIUS@px;
+    color: @TERTIARY_TEXT@;
+    font-size: @BADGE_SIZE@px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 15. Materials and attachments
+ * ------------------------------------------------------------------------ */
+
+QWidget#itemDetailMaterials, QWidget#attachmentGrid, QWidget#attachmentActions {
+    background: transparent;
+}
+
+QFrame#materialSection[dropActive="true"] {
+    background: @SELECTED_SURFACE@;
+    border-color: @ACCENT@;
+}
+
+QLabel#materialDropHint {
+    background: transparent;
+    color: @TERTIARY_TEXT@;
+    font-size: @BADGE_SIZE@px;
+}
+
+QPushButton#itemDetailAddAttachmentButton {
+    background: transparent;
+    border: none;
+    color: @ACCENT@;
+    font-weight: 600;
+    min-height: 24px;
+    padding: 0 2px;
+}
+
+QPushButton#itemDetailAddAttachmentButton:hover {
+    color: @ACCENT_HOVER@;
+}
+
+QFrame#attachmentCard {
+    background: @SECONDARY_SURFACE@;
+    border: 1px solid @SEPARATOR@;
+    border-radius: @RADIUS_NESTED@px;
+}
+
+/* 合并结果卡直接放在分区白底上，不再自带一层灰底。 */
+QFrame#attachmentCard[variant="inline"] {
+    background: transparent;
+    border: none;
+    border-radius: 0;
 }
 
 QFrame#attachmentCard:hover {
@@ -1338,16 +953,217 @@ QFrame#attachmentCard:hover {
     border-color: @SELECTED_BORDER@;
 }
 
+QFrame#attachmentCard[variant="inline"]:hover {
+    background: transparent;
+}
+
+QLabel#attachmentFileSize {
+    background: transparent;
+    color: @TERTIARY_TEXT@;
+    font-size: @BADGE_SIZE@px;
+}
+
+QPushButton#attachmentThumbnail {
+    background: @SECONDARY_SURFACE@;
+    border: 1px solid @BORDER@;
+    border-radius: @BADGE_RADIUS@px;
+    padding: 0;
+}
+
 QPushButton#attachmentThumbnail:hover {
+    background: @SELECTED_SURFACE@;
+    border-color: @ACCENT@;
+}
+
+QPushButton#attachmentTextAction, QPushButton#attachmentDangerAction,
+QPushButton#attachmentMutedAction {
+    background: transparent;
+    border: none;
+    min-height: 22px;
+    padding: 0;
+}
+
+QPushButton#attachmentTextAction {
+    color: @ACCENT@;
+}
+
+QPushButton#attachmentTextAction:hover {
+    color: @ACCENT_HOVER@;
+}
+
+/* 「文件夹」是次要动作，常态保持安静，避免三个链接同时抢注意力。 */
+QPushButton#attachmentMutedAction {
+    color: @SECONDARY_TEXT@;
+}
+
+QPushButton#attachmentMutedAction:hover {
+    color: @PRIMARY_TEXT@;
+}
+
+QPushButton#attachmentDangerAction {
+    color: @DANGER@;
+}
+
+QPushButton#attachmentDangerAction:hover {
+    color: @DANGER_TEXT@;
+}
+
+/* ---------------------------------------------------------------------------
+ * 16. Template management
+ * ------------------------------------------------------------------------ */
+
+QFrame#templateMaterialList {
+    background: @SURFACE@;
+    border: 1px solid @BORDER@;
+    border-radius: @CARD_RADIUS@px;
+}
+
+QFrame#templateMaterialList QCheckBox {
+    background: transparent;
+    min-height: 28px;
+}
+
+QScrollArea#templateMaterialScroll,
+QScrollArea#templateMaterialScroll QWidget#qt_scrollarea_viewport {
+    background: transparent;
+    border: none;
+}
+
+QPushButton#templateAddMaterialButton {
+    background: transparent;
+    border: 1px dashed @SELECTED_BORDER@;
+    color: @ACCENT@;
+    font-weight: 600;
+}
+
+QPushButton#templateAddMaterialButton:hover {
+    background: @HOVER_SURFACE@;
+    border-color: @ACCENT@;
+}
+
+QPushButton#templateAddMaterialButton:pressed {
     background: @SELECTED_SURFACE@;
 }
 
-/* Dashboard attention line: warning text, not a full-width banner. */
-QLabel#dashboardMissing {
+/* ---------------------------------------------------------------------------
+ * 16b. Template list actions
+ * ------------------------------------------------------------------------ */
+
+QWidget#templateActions {
+    background: transparent;
+}
+
+QPushButton#templateEditAction, QPushButton#templateDeleteAction {
     background: transparent;
     border: none;
-    border-radius: 0;
-    color: @WARNING_TEXT@;
-    min-height: 0;
+    min-height: 22px;
     padding: 0;
+}
+
+QPushButton#templateEditAction {
+    color: @ACCENT@;
+}
+
+QPushButton#templateEditAction:hover {
+    color: @ACCENT_HOVER@;
+}
+
+/* 删除是低频动作：常态安静，悬停才提示危险。 */
+QPushButton#templateDeleteAction {
+    color: @SECONDARY_TEXT@;
+}
+
+QPushButton#templateDeleteAction:hover {
+    color: @DANGER@;
+}
+
+/* ---------------------------------------------------------------------------
+ * 17. Settings
+ * ------------------------------------------------------------------------ */
+
+QLabel#backupResult, QLabel#restoreResult {
+    background: @SECONDARY_SURFACE@;
+    border: 1px solid @SEPARATOR@;
+    border-radius: @BADGE_RADIUS@px;
+    color: @SECONDARY_TEXT@;
+    padding: 8px;
+}
+
+QLabel#backupResult[result="success"], QLabel#restoreResult[result="success"] {
+    background: @SUCCESS_SURFACE@;
+    border-color: @SUCCESS_BORDER@;
+    color: @SUCCESS_TEXT@;
+}
+
+QLabel#backupResult[result="failure"], QLabel#restoreResult[result="failure"] {
+    background: @DANGER_SURFACE@;
+    border-color: @DANGER_BORDER@;
+    color: @DANGER_TEXT@;
+}
+
+/* ---------------------------------------------------------------------------
+ * 18. Dialogs
+ * ------------------------------------------------------------------------ */
+
+QDialog#standardDialog, QMessageBox#standardMessageDialog,
+QMessageBox {
+    background: @APP_BACKGROUND@;
+}
+
+QMessageBox QLabel {
+    background: transparent;
+}
+
+QLabel#dialogTitle {
+    background: transparent;
+    color: @PRIMARY_TEXT@;
+    font-size: @SECTION_TITLE_SIZE@px;
+    font-weight: 600;
+}
+
+QLabel#dialogFieldGroupTitle {
+    background: transparent;
+    color: @SECONDARY_TEXT@;
+    font-size: @SECONDARY_SIZE@px;
+    font-weight: 600;
+    padding-top: 4px;
+}
+
+QDialog#standardDialog QDialogButtonBox {
+    background: transparent;
+}
+
+QDialog#standardDialog QDialogButtonBox QPushButton,
+QMessageBox#standardMessageDialog QPushButton {
+    min-width: 78px;
+}
+
+QDialog#standardDialog QFormLayout QLabel {
+    background: transparent;
+    color: @SECONDARY_TEXT@;
+}
+
+QDialog#standardDialog QLineEdit, QDialog#standardDialog QComboBox {
+    min-height: 28px;
+}
+
+QDialog#standardDialog QTextEdit {
+    min-height: 56px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 19. Update dialog
+ * ------------------------------------------------------------------------ */
+
+QTextBrowser#updateNotes {
+    background: @SURFACE@;
+    border: 1px solid @BORDER@;
+    border-radius: @CARD_RADIUS@px;
+    color: @SECONDARY_TEXT@;
+    padding: 8px 10px;
+    selection-background-color: @SELECTED_SURFACE@;
+}
+
+QProgressBar#updateProgress {
+    background: @HOVER_SURFACE@;
 }

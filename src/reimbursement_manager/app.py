@@ -28,6 +28,7 @@ from reimbursement_manager.services import (
     WorkflowService,
 )
 from reimbursement_manager.services.backup_service import BackupService
+from reimbursement_manager.ui.ui_trace import install_trace
 from reimbursement_manager.ui.windows import MainWindow
 from reimbursement_manager.ui.windows.update_dialog import UpdateContext
 from reimbursement_manager.version import __version__
@@ -155,6 +156,7 @@ def main(
     )
 
     application = QApplication.instance() or QApplication([])
+    install_trace(application)
     application.setFont(QFont("Microsoft YaHei UI", 9))
     update_context = build_update_context(settings, frozen=frozen)
     if update_context is not None:

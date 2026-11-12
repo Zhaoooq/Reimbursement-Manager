@@ -270,7 +270,7 @@ def test_pending_materials_separates_collection_and_submission_states(tmp_path) 
         assert window.pending_materials_table.item(submission_row, 2).text() == "4 / 4"
         assert window.pending_materials_table.item(submission_row, 3).text() == "材料完整"
         assert window.pending_materials_table.item(submission_row, 4).text() == "2 / 3"
-        assert window.pending_materials_table.item(submission_row, 5).text() == "缺少：最终支付截图"
+        assert window.pending_materials_table.item(submission_row, 5).text() == "缺少：合并支付截图"
         assert submission_ready.name not in rows_by_name
     finally:
         window.close()
@@ -845,8 +845,13 @@ def test_template_management_list_shows_existing_template() -> None:
         assert window.template_empty_state.isHidden() is True
         assert [
             window.template_table.item(0, column).text()
-            for column in range(3)
-        ] == [template.name, "4 项材料 · 4 项必需", "›"]
+            for column in range(2)
+        ] == [template.name, "4 项材料 · 4 项必需"]
+        actions = window.template_table.cellWidget(0, 2)
+        assert actions is not None
+        assert [
+            button.text() for button in actions.findChildren(QPushButton)
+        ] == ["编辑", "删除"]
         assert window.findChild(QLabel, "templatePageSubtitle").text() == (
             "管理新建报销物品时使用的材料清单"
         )
@@ -2907,7 +2912,7 @@ def test_payment_merge_section_shows_latest_source_thumbnails_and_empty_result(
         assert payment_card.findChild(QLabel, "mergedPaymentSourceFilename").text() == latest.stored_filename
         assert window.merged_payment_section.findChild(QLabel, "mergedPaymentSectionTitle").text() == "支付凭证"
         assert window.merged_payment_section.findChild(QLabel, "mergedPaymentSectionDescription").text() == "订单截图与支付截图将合并为最终提交用的支付截图"
-        assert window.merged_payment_section.findChild(QLabel, "mergedPaymentEmpty").text() == "尚未生成最终支付截图"
+        assert window.merged_payment_section.findChild(QLabel, "mergedPaymentEmpty").text() == "尚未生成合并支付截图"
         assert window.generate_merged_payment_screenshot_button.text() == "生成支付截图"
     finally:
         window.close()
@@ -2994,11 +2999,25 @@ def test_payment_merge_section_delete_refreshes_submission_readiness(
         assert window.item_detail_submission_count_label.text() == "3 / 3"
         assert window.item_detail_submission_readiness_label.text() == "可提交"
 
-        result_card = window.merged_payment_section.findChild(QFrame, "attachmentCard")
-        assert result_card is not None
-        actions = result_card.findChild(QWidget, "attachmentActions")
-        assert actions is not None
-        next(button for button in actions.findChildren(QPushButton) if button.text() == "删除").click()
+        # 删除入口只在材料卡片里：凭证区只做预览，不提供删除。
+        assert not [
+            button
+            for button in window.merged_payment_section.findChildren(QPushButton)
+            if button.text() == "删除"
+        ]
+        derived_card = next(
+            card
+            for card in window.item_detail_materials.findChildren(QFrame, "attachmentCard")
+            if "合并提交文件"
+            in card.findChild(QLabel, "attachmentFilename").toolTip()
+        )
+        derived_actions = derived_card.findChild(QWidget, "attachmentActions")
+        assert derived_actions is not None
+        next(
+            button
+            for button in derived_actions.findChildren(QPushButton)
+            if button.text() == "删除"
+        ).click()
 
         assert not [attachment for attachment in attachments.list_attachments(item_id) if attachment.is_derived]
         assert window.item_detail_submission_count_label.text() == "2 / 3"

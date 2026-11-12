@@ -10,7 +10,7 @@ from reimbursement_manager.version import __version__
 
 
 def test_package_public_version_uses_the_canonical_version() -> None:
-    assert __version__ == "0.2.6"
+    assert __version__ == "0.2.7"
     assert reimbursement_manager.__version__ == __version__
 
 
